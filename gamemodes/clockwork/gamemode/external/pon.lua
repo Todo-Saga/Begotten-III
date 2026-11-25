@@ -354,7 +354,7 @@ do
 	decode['E'] = function(self, index, str, cache)
 		if(str[index] == '#')then
 			index = index + 1
-			return NULL
+			return index, NULL
 		else
 			local finish = find(str, ';', index, true)
 			local num = tonumber(sub(str, index, finish - 1))

@@ -35,6 +35,34 @@ netstream.Hook("gVar", function(key, value)
 end)
 ]]--
 
+local nVarsSynced = false
+local gVarsSynced = false
+local deletedIndices = {}
+local touchedKeys = {}
+local touchedGlobals = {}
+local pendingLocalVars = {}
+
+local function FlushPendingLocalVars()
+	local localPlayer = LocalPlayer()
+	if not IsValid(localPlayer) or #pendingLocalVars == 0 then return end
+
+	local index = localPlayer:EntIndex()
+	stored[index] = stored[index] or {}
+
+	for i = 1, #pendingLocalVars do
+		local entry = pendingLocalVars[i]
+		stored[index][entry[1]] = entry[2]
+		if not nVarsSynced and touchedKeys then
+			touchedKeys[index] = touchedKeys[index] or {}
+			touchedKeys[index][entry[1]] = true
+		end
+	end
+
+	pendingLocalVars = {}
+end
+
+hook.Add("InitPostEntity", "cwNetVarsInitialSync", FlushPendingLocalVars)
+
 net.Receive("nVar", function()
 	local index = net.ReadUInt(14);
 	local key = net.ReadString()
@@ -42,20 +70,44 @@ net.Receive("nVar", function()
 
 	stored[index] = stored[index] or {}
 	stored[index][key] = value
+
+	if not nVarsSynced then
+		if touchedKeys then
+			touchedKeys[index] = touchedKeys[index] or {}
+			touchedKeys[index][key] = true
+		end
+	end
 end)
 
 net.Receive("nDel", function()
 	local index = net.ReadUInt(14);
 
 	stored[index] = nil
+
+	if not nVarsSynced and deletedIndices then
+		deletedIndices[index] = true
+	end
 end)
 
 net.Receive("nLcl", function()
 	local key = net.ReadString()
 	local value = net.ReadType()
+	local localPlayer = LocalPlayer()
+	if not IsValid(localPlayer) then
+		pendingLocalVars[#pendingLocalVars + 1] = {key, value}
+		return
+	end
 
-	stored[LocalPlayer():EntIndex()] = stored[LocalPlayer():EntIndex()] or {}
-	stored[LocalPlayer():EntIndex()][key] = value
+	FlushPendingLocalVars()
+
+	local index = localPlayer:EntIndex()
+	stored[index] = stored[index] or {}
+	stored[index][key] = value
+
+	if not nVarsSynced and touchedKeys then
+		touchedKeys[index] = touchedKeys[index] or {}
+		touchedKeys[index][key] = true
+	end
 end)
 
 net.Receive("gVar", function()
@@ -63,6 +115,73 @@ net.Receive("gVar", function()
 	local value = net.ReadType()
 
 	globals[key] = value
+
+	if not gVarsSynced and touchedGlobals then
+		touchedGlobals[key] = true
+	end
+end)
+
+netstream.Hook("nVarsSync", function(batch)
+	if not istable(batch) then return end
+
+	local wasSynced = nVarsSynced
+
+	-- Array of {entIndex, vars} pairs; pON drops sparse integer keys.
+	for _, pair in ipairs(batch) do
+		local index, data = istable(pair) and pair[1], istable(pair) and pair[2]
+		if not isnumber(index) or not istable(data) then continue end
+		if not wasSynced and deletedIndices and deletedIndices[index] then
+			continue
+		end
+
+		stored[index] = stored[index] or {}
+		local touched = (not wasSynced and touchedKeys and touchedKeys[index]) or nil
+
+		if wasSynced then
+			for k in pairs(stored[index]) do
+				if data[k] == nil and (not touched or not touched[k]) then
+					stored[index][k] = nil
+				end
+			end
+		end
+
+		for k, v in pairs(data) do
+			if (not touched or not touched[k]) and (wasSynced or stored[index][k] == nil) then
+				stored[index][k] = v
+			end
+		end
+	end
+
+	FlushPendingLocalVars()
+	nVarsSynced = true
+	deletedIndices = nil
+	touchedKeys = nil
+end)
+
+netstream.Hook("gVarsSync", function(vars)
+	if not istable(vars) then return end
+
+	local wasSynced = gVarsSynced
+
+	if wasSynced then
+		for k in pairs(globals) do
+			if vars[k] == nil then
+				globals[k] = nil
+			end
+		end
+	end
+
+	for k, v in pairs(vars) do
+		if (not wasSynced and touchedGlobals and touchedGlobals[k]) then
+			continue
+		end
+		if wasSynced or globals[k] == nil then
+			globals[k] = v
+		end
+	end
+
+	gVarsSynced = true
+	touchedGlobals = nil
 end)
 
 function netvars.GetNetVar(key, default)

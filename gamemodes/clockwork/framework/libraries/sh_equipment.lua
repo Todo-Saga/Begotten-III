@@ -295,16 +295,34 @@ if SERVER then
 	end
 	
 	function Clockwork.equipment:NetworkEquipmentToPlayer(target, player)
+		if (!IsValid(target)) then
+			return;
+		end;
+
+		local isTableRecipient = istable(player);
+		if (isTableRecipient) then
+			if (#player == 0) then return; end;
+		elseif (!IsValid(player)) then
+			return;
+		end;
+
 		if !target.equipmentSlots then
 			target.equipmentSlots = {};
 		end;
 		
 		local equipmentSlots = {};
+		local sentItemIDs = {};
 		
 		for k, v in pairs(target.equipmentSlots) do
 			if v then
-				equipmentSlots[k] = v.itemID;
-				item.SendToPlayer(player, v);
+				local itemID = v.itemID;
+				equipmentSlots[k] = itemID;
+				if (itemID and not sentItemIDs[itemID]) then
+					sentItemIDs[itemID] = true;
+					item.SendToPlayer(player, v);
+				elseif (!itemID) then
+					item.SendToPlayer(player, v);
+				end;
 			end
 		end
 	
@@ -312,6 +330,12 @@ if SERVER then
 	end
 	
 	function Clockwork.equipment:SyncEquipment(player)
+		if (!IsValid(player)) then
+			return;
+		end;
+
+		local sentItemIDs = {};
+
 		for _, v in _player.Iterator() do
 			if !v.equipmentSlots then
 				v.equipmentSlots = {};
@@ -325,8 +349,12 @@ if SERVER then
 			
 			for k2, v2 in pairs(v.equipmentSlots) do
 				if v2 then
-					equipmentSlots[k2] = v2.itemID;
-					item.SendToPlayer(player, v2);
+					local itemID = v2.itemID;
+					equipmentSlots[k2] = itemID;
+					if itemID and not sentItemIDs[itemID] then
+						sentItemIDs[itemID] = true;
+						item.SendToPlayer(player, v2);
+					end
 				end
 			end
 			
@@ -515,9 +543,13 @@ if SERVER then
 		
 		hook.Run("PlayerSetHandsModel", player, player:GetHands());
 		
+		local recipients = {};
 		for _, v in _player.Iterator() do
-			Clockwork.equipment:NetworkEquipmentToPlayer(player, v);
+			if v == player or v:HasInitialized() then
+				recipients[#recipients + 1] = v;
+			end
 		end
+		Clockwork.equipment:NetworkEquipmentToPlayer(player, recipients);
 	end);
 else
 	-- A function to get the entity's real position.

@@ -5,6 +5,20 @@
 	Other credits: kurozael, Alex Grist, Mr. Meow, zigbomb
 --]]
 
+function cwZombies:IsZombieNPC(entity)
+	if not IsValid(entity) then return false end;
+	local npcCount = self.zombieNPCS and #self.zombieNPCS or 0;
+	if (not self.zombieNPCSet or self._zombieNPCSCount ~= npcCount) and self.zombieNPCS then
+		self.zombieNPCSet = {};
+		self._zombieNPCSCount = npcCount;
+		for _, class in pairs(self.zombieNPCS) do
+			self.zombieNPCSet[class] = true;
+		end;
+	end;
+	local class = entity:GetClass();
+	return (self.zombieNPCSet and self.zombieNPCSet[class]) or (isfunction(entity.IsZombie) and entity:IsZombie()) or (entity.IsZombie == true) or false;
+end;
+
 --[[cwZombies.manualZombieSpawns = cwZombies.manualZombieSpawns or {};
 
 -- A function to make a zombie spring up from the dead.
@@ -135,16 +149,27 @@ function cwZombies:SpawnZombie(class, position)
 end;]]--
 
 function cwZombies:GiveAwayPosition(entity, radius)
+	if not IsValid(entity) then return end;
 	local playerPosition = entity:GetPos();
+	local maxDistSq = (radius or 2500) ^ 2;
 	
-	for k, v in pairs (ents.FindInSphere(playerPosition, (radius or 2500))) do
-		if ((v:IsNPC() or v:IsNextBot()) and table.HasValue(self.zombieNPCS, v:GetClass()) --[[and v:GetLastEnemy() != entity]]) then
+	if self.activeZombies then
+		for v in pairs(self.activeZombies) do
+			if IsValid(v) then
+				if v:Health() > 0 and not (v.IsDead and v:IsDead()) and v:GetPos():DistToSqr(playerPosition) <= maxDistSq then
+					v:SetEnemy(entity);
+					break;
+				end
+			else
+				self.activeZombies[v] = nil;
+			end
+		end
+		return;
+	end
+
+	for _, v in ipairs(ents.FindInSphere(playerPosition, radius or 2500)) do
+		if (v:IsNPC() or v:IsNextBot()) and v:Health() > 0 and not (v.IsDead and v:IsDead()) and self:IsZombieNPC(v) then
 			v:SetEnemy(entity);
-			--v:SetLastEnemy(entity);
-			--v:UpdateEnemyMemory(entity, entity:GetPos());
-			
-			--v:EmitSound("begotten/npc/"..string.sub(tostring(v:GetClass()), 4, -1).."/notice_long0"..math.random(1, 2)..".mp3", 500, math.random(95, 105));
-			
 			break;
 		end;
 	end;
@@ -181,11 +206,40 @@ function cwZombies:SpawnThrall(name, spawnPos, angles)
 	end
 	
 	if IsValid(entity) then
+		local trace = util.TraceHull({
+			start = spawnPos + Vector(0, 0, 12),
+			endpos = spawnPos - Vector(0, 0, 64),
+			mins = Vector(-18, -18, 0),
+			maxs = Vector(18, 18, 72),
+			mask = MASK_NPCSOLID_BRUSHONLY,
+		});
+		if trace.Hit and not trace.StartSolid and util.IsInWorld(trace.HitPos + Vector(0, 0, 4)) then
+			spawnPos = trace.HitPos + Vector(0, 0, 4);
+		elseif !util.IsInWorld(spawnPos) then
+			local raised = spawnPos + Vector(0, 0, 16);
+			if util.IsInWorld(raised) then
+				spawnPos = raised;
+			end;
+		end
+
+		local spawnAng = angles and Angle(0, angles.y, 0) or angle_zero;
 		entity:CustomInitialize();
-		entity:SetPos(spawnPos)
-		entity:SetAngles(angles);
+		entity:SetPos(spawnPos);
+		entity:SetAngles(spawnAng);
 		entity:Spawn();
 		entity:Activate();
+		if entity.loco then
+			entity.loco:SetVelocity(vector_origin);
+		end;
+
+		if not self.activeZombies then self.activeZombies = {}; end;
+		self.activeZombies[entity] = true;
+
+		local phys = entity:GetPhysicsObject();
+		if IsValid(phys) then
+			phys:SetVelocity(Vector(0, 0, 0));
+			phys:SetAngleVelocity(Vector(0, 0, 0));
+		end;
 	end
 		
 	return entity;

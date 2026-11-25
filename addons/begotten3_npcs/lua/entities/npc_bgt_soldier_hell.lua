@@ -308,7 +308,11 @@ if SERVER then
 	
 	-- Animations/Sounds --
 	function ENT:OnNewEnemy()
-		self:EmitSound("npc/stalker/stalker_scream"..math.random(1,3)..".wav", 100, self.pitch, 0.6)
+		local curTime = CurTime();
+		if (!self.nextNewEnemySound or self.nextNewEnemySound < curTime) then
+			self.nextNewEnemySound = curTime + 4;
+			self:EmitSound("npc/stalker/stalker_scream"..math.random(1,3)..".wav", 100, self.pitch, 0.6);
+		end;
 	end
 	
 	function ENT:OnChaseEnemy()

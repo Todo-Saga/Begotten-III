@@ -691,6 +691,23 @@ function cwMelee:PlayerStabilityFallover(player, falloverTime, bNoBoogie, bNoTex
 	end
 end;
 
+-- Called when a player has been ragdolled.
+function cwMelee:PlayerRagdolled(player, state, ragdoll)
+	if IsValid(player) then
+		if player.CancelGuardening then
+			player:CancelGuardening();
+		elseif player:GetNetVar("Guardening") then
+			player:SetNetVar("Guardening", false);
+		end;
+
+		if player:GetNetVar("MelAttacking") then player:SetLocalVar("MelAttacking", false); end;
+		if player:GetNetVar("Parry") then player:SetLocalVar("Parry", false); end;
+		if player:GetNetVar("ParrySuccess") then player:SetLocalVar("ParrySuccess", false); end;
+		if player:GetNetVar("Riposting") then player:SetLocalVar("Riposting", false); end;
+		if player:GetNetVar("Deflect") then player:SetLocalVar("Deflect", false); end;
+	end;
+end;
+
 -- Called when a player has been unragdolled.
 function cwMelee:PlayerUnragdolled(player, state, ragdoll)
 	if player:Alive() then

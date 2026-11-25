@@ -789,6 +789,52 @@ function SWEP:PrimaryAttack()
 	if SERVER and bAttack and self:IsValid() and (!owner.IsRagdolled or !owner:IsRagdolled()) and owner:Alive() then
 		owner:SetLocalVar("MelAttacking", true )
 		
+		local takeAmmo = attacktable["takeammo"] or 1;
+		local takeAmmoOffhand;
+		
+		if owner:GetNetVar("ThrustStance") then
+			if attacktable["alttakeammo"] then
+				takeAmmo = attacktable["alttakeammo"];
+			end
+			
+			if offhandAttackTable then
+				if offhandAttackTable["alttakeammo"] then
+					takeAmmoOffhand = offhandAttackTable["alttakeammo"];
+				else
+					takeAmmoOffhand = offhandAttackTable["takeammo"];
+				end
+			end
+		else
+			if offhandAttackTable then
+				takeAmmoOffhand = offhandAttackTable["takeammo"];
+			end
+		end
+		
+		if offhandAttackTable and takeAmmoOffhand then
+			takeAmmo = (takeAmmo + takeAmmoOffhand) * 0.75;
+		end
+		
+		local attackStaminaCost = takeAmmo;
+
+		if (self.isPickaxe and owner:GetCharmEquipped("toilers_stone")) then
+			attackStaminaCost = attackStaminaCost * 0.7;
+		end
+
+		if cwMedicalSystem then
+			local injuries = cwMedicalSystem:GetInjuries(owner);
+			if injuries then
+				if injuries[HITGROUP_LEFTARM] and (injuries[HITGROUP_LEFTARM]["broken_bone"]) then
+					attackStaminaCost = attackStaminaCost + (takeAmmo * 2);
+				end
+				
+				if injuries[HITGROUP_RIGHTARM] and (injuries[HITGROUP_RIGHTARM]["broken_bone"]) then
+					attackStaminaCost = attackStaminaCost + (takeAmmo * 2);
+				end
+			end
+		end
+
+		owner:HandleStamina(-attackStaminaCost);
+
 		self.HolsterDelay = (curTime + strikeTime)
 		self.isAttacking = true;
 			
@@ -1143,60 +1189,6 @@ function SWEP:PrimaryAttack()
 		end)
 	end
 
-	if (SERVER) then
-		--local max_poise = owner:GetNetVar("maxMeleeStamina");
-		local takeAmmo = attacktable["takeammo"] or 1;
-		local takeAmmoOffhand;
-		
-		if self.Owner:GetNetVar("ThrustStance") then
-			if attacktable["alttakeammo"] then
-				takeAmmo = attacktable["alttakeammo"];
-			end
-			
-			if offhandAttackTable then
-				if attacktable["alttakeammo"] then
-					takeAmmoOffhand = offhandAttackTable["alttakeammo"];
-				else
-					takeAmmoOffhand = offhandAttackTable["takeammo"];
-				end
-			end
-		else
-			if offhandAttackTable then
-				takeAmmoOffhand = offhandAttackTable["takeammo"];
-			end
-		end
-		
-		if offhandAttackTable then
-			takeAmmo = math.max((takeAmmo + takeAmmoOffhand) * 0.75);
-		end
-		
-		local attackCost = takeAmmo;
-
-		if(self.isPickaxe and self.Owner:GetCharmEquipped("toilers_stone")) then attackCost = attackCost * 0.7 end
-
-		if cwMedicalSystem then
-			local injuries;
-			
-			if SERVER then
-				injuries = cwMedicalSystem:GetInjuries(self.Owner);
-			else
-				injuries = Clockwork.Client.cwInjuries;
-			end
-			
-			if injuries then
-				if injuries[HITGROUP_LEFTARM] and (injuries[HITGROUP_LEFTARM]["broken_bone"]) then
-					attackCost = attackCost + (takeAmmo * 2);
-				end
-				
-				if injuries[HITGROUP_RIGHTARM] and (injuries[HITGROUP_RIGHTARM]["broken_bone"]) then
-					attackCost = attackCost + (takeAmmo * 2);
-				end
-			end
-		end
-			
-		--owner:SetNWInt("meleeStamina", math.Clamp(owner:GetNWInt("meleeStamina", max_poise) - attackCost, 0, max_poise));
-		owner:HandleStamina(-attackCost);
-	end;
 end
 
 --if (SERVER) then
@@ -2282,6 +2274,7 @@ function SWEP:SecondaryAttack()
 	local curTime = CurTime();
 
 	if ply:KeyDown(IN_ATTACK2) and !ply:KeyDown(IN_RELOAD) and ply:GetNetVar("Guardening") == true then
+		if ply:GetNWInt("Stamina", 100) <= 0 then return end
 		-- Deflection
 		if blocktable["candeflect"] == true then
 			local deflectioncooldown = 2;
@@ -3091,7 +3084,14 @@ function SWEP:Initialize()
 	self:SetHoldType(self:GetHoldtypeOverride());
 end
 
-function SWEP:Holster()
+function SWEP:Holster(wep)
+	if self.OnHolster then
+		local canHolster = self:OnHolster(wep);
+		if canHolster == false then
+			return false;
+		end
+	end
+
 	local player = self.OwnerOverride or self.Owner;
 	
 	if IsValid(player) then
@@ -3099,6 +3099,13 @@ function SWEP:Holster()
 
 		if player:IsPlayer() then
 			self:StopAllAnims(player);
+			if SERVER then
+				if (player.CancelGuardening) then
+					player:CancelGuardening();
+				else
+					player:SetNetVar("Guardening", false);
+				end;
+			end;
 		end
 		
 		if CLIENT then
@@ -3133,10 +3140,6 @@ function SWEP:Holster()
 				player.parryStacks = nil;
 			end
 		end
-	end
-	
-	if self.OnHolster then
-		self:OnHolster();
 	end
 	
 	if CLIENT then

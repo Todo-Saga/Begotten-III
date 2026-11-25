@@ -1370,8 +1370,8 @@ if map == "rp_begotten3" then
 		SEA1.fogEnd = 1024;
 		SEA1.colorModify = {["$pp_colour_brightness"] = -0.05, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 0.15};
 		SEA1.bounds = {
-			min = Vector(15392, 14700, -5400),
-			max = Vector(5158, 4500, -6500),
+			min = Vector(5158, 4500, -6500),
+			max = Vector(15392, 14700, -5400),
 		};
 
 		-- Called every frame.
@@ -1388,8 +1388,8 @@ if map == "rp_begotten3" then
 		SEA2.fogEnd = 1024;
 		SEA2.colorModify = {["$pp_colour_brightness"] = -0.05, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 0.15};
 		SEA2.bounds = {
-			min = Vector(5110, 14700, -5400),
-			max = Vector(-5095, 4500, -6500),
+			min = Vector(-5095, 4500, -6500),
+			max = Vector(5110, 14700, -5400),
 		};
 		
 		-- Called every frame.
@@ -1407,8 +1407,8 @@ if map == "rp_begotten3" then
 		SEA3.fogEnd = 1024;
 		SEA3.colorModify = {["$pp_colour_brightness"] = -0.2, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 1}
 		SEA3.bounds = {
-			min = Vector(-5110, 14700, -5400),
-			max = Vector(-15349, 4500, -6500),
+			min = Vector(-15349, 4500, -6500),
+			max = Vector(-5110, 14700, -5400),
 		};
 		
 		-- Called every frame.
@@ -2020,6 +2020,7 @@ elseif map == "rp_district21" then
 	GORE:Register()
 
 	local SEA1 = zones:New("sea_rough")
+		SEA1.weatherOverride = "rain";
 		SEA1.name = "Sea (Rough)";
 		SEA1.map = "rp_district21";
 		SEA1.fogColors = {r = 0, g = 30, b = 90};
@@ -2027,8 +2028,8 @@ elseif map == "rp_district21" then
 		SEA1.fogEnd = 1024;
 		SEA1.colorModify = {["$pp_colour_brightness"] = -0.05, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 0.15};
 		SEA1.bounds = {
-			min = Vector(15392, 14700, -5400),
-			max = Vector(5158, 4500, -6500),
+			min = Vector(5158, 4500, -6500),
+			max = Vector(15392, 14700, -5400),
 		};
 
 		-- Called every frame.
@@ -2045,8 +2046,8 @@ elseif map == "rp_district21" then
 		SEA2.fogEnd = 1024;
 		SEA2.colorModify = {["$pp_colour_brightness"] = -0.05, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 0.15};
 		SEA2.bounds = {
-			min = Vector(5110, 14700, -5400),
-			max = Vector(-5095, 4500, -6500),
+			min = Vector(-5095, 4500, -6500),
+			max = Vector(5110, 14700, -5400),
 		};
 		
 		-- Called every frame.
@@ -2056,6 +2057,7 @@ elseif map == "rp_district21" then
 	SEA2:Register()
 
 	local SEA3 = zones:New("sea_styx")
+		SEA3.weatherOverride = "ash";
 		SEA3.name = "River Styx";
 		SEA3.map = "rp_district21";
 		SEA3.fogColors = {r = 80, g = 10, b = 10};
@@ -2063,8 +2065,8 @@ elseif map == "rp_district21" then
 		SEA3.fogEnd = 1024;
 		SEA3.colorModify = {["$pp_colour_brightness"] = -0.2, ["$pp_colour_contrast"] = 1, ["$pp_colour_colour"] = 1}
 		SEA3.bounds = {
-			min = Vector(-5110, 14700, -5400),
-			max = Vector(-15349, 4500, -6500),
+			min = Vector(-15349, 4500, -6500),
+			max = Vector(-5110, 14700, -5400),
 		};
 		
 		-- Called every frame.

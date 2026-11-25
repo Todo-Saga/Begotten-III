@@ -1295,10 +1295,54 @@ function Clockwork.player:Query(player, key, default)
 end
 
 -- A function to set a player to a safe position.
-function Clockwork.player:SetSafePosition(player, position, filter)
-	player:SetPos(position + Vector(0, 0, 4))
+-- bUnragdolling: the player is about to stand up, so test the full standing hull (upstream IsStuck).
+function Clockwork.player:SetSafePosition(player, position, filter, bUnragdolling)
+	local function RelocateRagdoll(finalPos)
+		if (!bUnragdolling and player:IsRagdolled()) then
+			local ragdoll = player:GetRagdollEntity();
+			if (!IsValid(ragdoll) and player.cwRagdollTab) then
+				ragdoll = player.cwRagdollTab.entity;
+			end;
+			if (IsValid(ragdoll)) then
+				local physCount = ragdoll:GetPhysicsObjectCount();
+				local rootPhys = physCount > 0 and ragdoll:GetPhysicsObjectNum(0) or ragdoll:GetPhysicsObject();
+				local delta = IsValid(rootPhys) and (finalPos - rootPhys:GetPos()) or (finalPos - ragdoll:GetPos());
+				for i = 0, physCount - 1 do
+					local phys = ragdoll:GetPhysicsObjectNum(i);
+					if (IsValid(phys)) then
+						phys:SetPos(phys:GetPos() + delta);
+						phys:SetVelocityInstantaneous(Vector(0, 0, 0));
+						phys:SetAngleVelocityInstantaneous(Vector(0, 0, 0));
+						phys:Wake();
+					end;
+				end;
+				ragdoll:SetPos(finalPos);
+			end;
+		end;
+	end;
 
-	if (player:IsStuck()) then
+	local function IsPositionStuck(pos)
+		if (!bUnragdolling and player:IsRagdolled()) then
+			local ragdoll = player:GetRagdollEntity();
+			if (!IsValid(ragdoll) and player.cwRagdollTab) then
+				ragdoll = player.cwRagdollTab.entity;
+			end;
+			local tr = util.TraceHull({
+				start = pos,
+				endpos = pos,
+				mins = Vector(-16, -16, 0),
+				maxs = Vector(16, 16, 36),
+				filter = IsValid(ragdoll) and {player, ragdoll} or player,
+				mask = MASK_PLAYERSOLID
+			});
+			return tr.Hit or tr.StartSolid;
+		end;
+		return player:IsStuck();
+	end;
+
+	player:SetPos(position + Vector(0, 0, 4));
+
+	if (IsPositionStuck(player:GetPos())) then
 		player:DropToFloor()
 		player:SetPos(player:GetPos() + Vector(0, 0, 4))
 
@@ -1310,24 +1354,38 @@ function Clockwork.player:SetSafePosition(player, position, filter)
 			table.insert(filter, player)
 		end
 
-		if (!player:IsStuck()) then return end
+		if (!IsPositionStuck(player:GetPos())) then
+			RelocateRagdoll(player:GetPos());
+			return
+		end
 
 		local positions = Clockwork.player:GetSafePosition(player, player:GetPos(), filter, 3)
 
 		for k, v in ipairs(positions) do
 			player:SetPos(v)
 
-			if (!player:IsStuck()) then
+			if (!IsPositionStuck(v)) then
+				RelocateRagdoll(player:GetPos());
 				return
 			else
 				player:DropToFloor()
 
-				if (!player:IsStuck()) then
+				if (!IsPositionStuck(player:GetPos())) then
+					RelocateRagdoll(player:GetPos());
 					return
 				end
 			end
 		end
+
+		if (player:GetPos():IsZero() or !util.IsInWorld(player:GetPos())) then
+			local raised = position + Vector(0, 0, 16);
+			if (util.IsInWorld(raised)) then
+				player:SetPos(raised);
+			end;
+		end
 	end
+
+	RelocateRagdoll(player:GetPos());
 end
 
 -- A function to get the safest position near a position.
@@ -2341,6 +2399,7 @@ end
 
 -- A function to set a player's weapons list from a table.
 function Clockwork.player:SetWeapons(player, weapons, bForceReturn)
+	if (!istable(weapons)) then return; end;
 	for k, v in pairs(weapons) do
 		if (!player:HasWeapon(v.weaponData["class"])) then
 			if (!v.teamIndex or player:Team() == v.teamIndex) then
@@ -2621,6 +2680,10 @@ function Clockwork.player:SetRagdollState(player, state, delay, decay, force, mu
 				hook.Run("PlayerRagdolled", player, state, player.cwRagdollTab)
 			end
 		elseif (hook.Run("PlayerCanRagdoll", player, state, delay, decay)) ~= false then
+			if (player:GetMoveType() == MOVETYPE_LADDER) then
+				player:SetMoveType(MOVETYPE_WALK);
+			end;
+
 			local velocity = player:GetVelocity() + (player:GetAimVector() * 128);
 			local ragdoll = ents.Create("prop_ragdoll")
 			local model = player:GetModel();
@@ -2795,7 +2858,7 @@ function Clockwork.player:SetRagdollState(player, state, delay, decay, force, mu
 						local position = Clockwork.entity:GetPelvisPosition(ragdollTable.entity)
 
 						if (position) then
-							self:SetSafePosition(player, position, ragdollTable.entity)
+							self:SetSafePosition(player, position, ragdollTable.entity, true)
 						end
 
 						player:SetSkin(ragdollTable.entity:GetSkin())

@@ -859,6 +859,14 @@ function Schema:BloodEffect(entity, position, effect)
 	if (!IsValid(entity) or !position) then
 		return;
 	end;
+
+	if not effect then
+		local curTime = CurTime();
+		if (entity.cwNextBloodEffect and entity.cwNextBloodEffect > curTime) then
+			return;
+		end;
+		entity.cwNextBloodEffect = curTime + 0.12;
+	end;
 	
 	local effect = effect or "blood_advisor_puncture_withdraw";
 	local bloodPatch = ents.Create("prop_physics");
@@ -2742,6 +2750,7 @@ end);
 
 if map == "rp_district21" then
 	concommand.Add("cw_HellPortalAbandonedChurch", function(player, cmd, args)
+		if not IsValid(player) then return; end;
 		if not player.teleporting then
 			local trace = player:GetEyeTrace();
 	
@@ -2787,6 +2796,7 @@ if map == "rp_district21" then
 end
 
 concommand.Add("cw_HellPortalArch", function(player, cmd, args)
+	if not IsValid(player) then return; end;
 	if not player.teleporting then
 		local trace = player:GetEyeTrace();
 
@@ -2831,6 +2841,7 @@ concommand.Add("cw_HellPortalArch", function(player, cmd, args)
 end);
 
 concommand.Add("cw_HellPortalPillars", function(player, cmd, args)
+	if not IsValid(player) then return; end;
 	if not player.teleporting then
 		local trace = player:GetEyeTrace();
 

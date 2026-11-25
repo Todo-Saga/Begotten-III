@@ -766,7 +766,18 @@ local COMMAND = Clockwork.command:New("PlyGoto");
 				cwPickupObjects:ForceDropEntity(player)
 			end
 		
-			Clockwork.player:SetSafePosition(player, target:GetPos());
+			local targetPos = target:GetPos();
+			if (target:IsRagdolled()) then
+				local ragdoll = target:GetRagdollEntity();
+				if (!IsValid(ragdoll) and target.cwRagdollTab) then
+					ragdoll = target.cwRagdollTab.entity;
+				end;
+				if (IsValid(ragdoll)) then
+					targetPos = ragdoll:GetPos();
+				end;
+			end;
+
+			Clockwork.player:SetSafePosition(player, targetPos);
 			Clockwork.player:NotifyAll(player:Name().." has gone to "..target:Name().."'s location.");
 			
 			hook.Run("PlayerTeleported", player);

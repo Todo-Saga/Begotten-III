@@ -722,6 +722,8 @@ function Clockwork.kernel:CreateConVar(name, value, flags, Callback)
 	local conVar = CreateConVar(name, value, flags or FCVAR_REPLICATED + FCVAR_NOTIFY + FCVAR_ARCHIVE)
 
 	cvars.AddChangeCallback(name, function(conVar, previousValue, newValue)
+		if (previousValue == newValue) then return; end;
+
 		hook.Run("ClockworkConVarChanged", conVar, previousValue, newValue)
 
 		if (Callback) then
@@ -2248,7 +2250,7 @@ end
 -- An easy function to give a table of items to a player.
 function playerMeta:GiveItems(itemTables)
 	for _, itemTable in pairs(itemTables) do
-		self:GiveItem(itemTables)
+		self:GiveItem(itemTable)
 	end
 end
 

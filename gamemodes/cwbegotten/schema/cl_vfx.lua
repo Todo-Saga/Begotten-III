@@ -309,6 +309,9 @@ function Schema:CalcView(player, origin, angles, fov)
 			end;
 		end;
 	elseif (!Clockwork.Client:Alive()) then
+		CRAZYBOB = nil;
+		self.HeadbobAngle = 0;
+		self.HeadbobInfo = nil;
 		return {origin = Vector(20000, 0, 0), angles = Angle(0, 0, 0), fov = fov};
 	--[[elseif (Clockwork.Client:Health() <= 30) then
 		if (!Clockwork.player:IsNoClipping(player)) then
@@ -539,6 +542,14 @@ function Schema:PlayerAdjustHeadbobInfo(info)
 		info.yaw = info.yaw * math.min(drunk, 4);
 	end;
 end
+
+hook.Add("PlayerCharacterInitialized", "SchemaVFXResetHeadbob", function(data)
+	CRAZYBOB = nil;
+	if Schema then
+		Schema.HeadbobAngle = 0;
+		Schema.HeadbobInfo = nil;
+	end;
+end);
 
 -- Called when the foreground HUD is painted.
 function Schema:HUDPaintForeground()

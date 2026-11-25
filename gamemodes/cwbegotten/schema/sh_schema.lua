@@ -151,13 +151,15 @@ function Schema:IsInBox(firstVector, secondVector, position, bOptimized, delay)
 		return false
 	end
 	
-	local firstVector = firstVector
-	local secondVector = secondVector
-	local bInBox = false
+	local minX, maxX = firstVector.x, secondVector.x;
+	if minX > maxX then minX, maxX = maxX, minX; end;
+	local minY, maxY = firstVector.y, secondVector.y;
+	if minY > maxY then minY, maxY = maxY, minY; end;
+	local minZ, maxZ = firstVector.z, secondVector.z;
+	if minZ > maxZ then minZ, maxZ = maxZ, minZ; end;
 
-	if (position:WithinAABox(firstVector, secondVector)) then
-		bInBox = true
-	end
+	local px, py, pz = position.x, position.y, position.z;
+	local bInBox = (px >= minX and px <= maxX and py >= minY and py <= maxY and pz >= minZ and pz <= maxZ);
 	
 	if (bOptimized) then
 		if (bIsEntity and entity) then

@@ -176,6 +176,13 @@ function SWEP:Deploy()
 	
 	self:SetHoldType(self.HoldType)
 
+	self.ironMultiplier = 0;
+	self.bInRunSights = false;
+	local deployDelay = self.DeployDelay or 0.4;
+	-- Never shorten a pending RPM cooldown by swapping weapons.
+	self.Weapon:SetNextPrimaryFire(math.max(self.Weapon:GetNextPrimaryFire(), CurTime() + deployDelay));
+	self.Weapon:SetNextSecondaryFire(math.max(self.Weapon:GetNextSecondaryFire(), CurTime() + deployDelay));
+
 	--self.Weapon:SetNWBool("Reloading", false)
    
 	if !self.Owner:IsNPC() and self.Owner != nil then
@@ -195,7 +202,9 @@ function SWEP:OnDrop()
 	self:OnRemove();
 end
  
-function SWEP:Holster()
+function SWEP:Holster(wep)
+	self.ironMultiplier = 0;
+	self.bInRunSights = false;
 	if IsValid(self.Owner) and self.Owner:IsPlayer() then
 		if CLIENT then
 			local vm = self.Owner:GetViewModel()
@@ -209,7 +218,7 @@ function SWEP:Holster()
 	end
 	
 	if self.OnHolster then
-		self:OnHolster();
+		self:OnHolster(wep);
 	end
 	
 	if CLIENT then
@@ -404,6 +413,8 @@ function SWEP:CanFireBegotten()
 			else
 				return false;
 			end
+		else
+			return false;
 		end
 	end
 	
@@ -440,19 +451,41 @@ function SWEP:TakeAmmoBegotten(amount)
 				if table.IsEmpty(ammo) and magazine then
 					if IsValid(self.Owner) and self.Owner:IsPlayer() then
 						local magazineItemID = string.gsub(string.lower(magazine), " ", "_");
-						local magazineItem = item.CreateInstance(magazineItemID);
+						local magazineItem = item.CreateInstance(magazineItemID, nil, nil, true);
 						
 						if magazineItem and magazineItem.SetAmmoMagazine then
 							magazineItem:SetAmmoMagazine(0);
+							local magCond = itemTable.GetData and itemTable:GetData("MagCondition");
+							if isnumber(magCond) and magCond >= 0 and magazineItem.SetCondition then
+								magazineItem:SetCondition(magCond);
+							end;
 							
-							self.Owner:GiveItem(magazineItem);
+							local bGiven = self.Owner:GiveItem(magazineItem);
+							if not bGiven then
+								Clockwork.entity:CreateItem(self.Owner, magazineItem, self.Owner:GetPos() + Vector(0, 0, 16));
+							end
 						end
 					end
 				end
 			end
 			
 			if itemTable.SetData then
+				if table.IsEmpty(ammo) then
+					itemTable:SetData("MagCondition", -1);
+				end;
 				itemTable:SetData("Ammo", ammo);
+				local roundConditions = itemTable:GetData("RoundConditions");
+				if roundConditions and #roundConditions > 0 then
+					local removeCount = amount or 1;
+					if #roundConditions > removeCount then
+						for i = 1, removeCount do
+							table.remove(roundConditions, 1);
+						end;
+					else
+						roundConditions = {};
+					end;
+					itemTable:SetData("RoundConditions", roundConditions);
+				end;
 			end
 			
 			-- Also handle weapon item condition here.
@@ -599,17 +632,15 @@ function SWEP:ShootBullet(damage, recoil, num_bullets, aimcone)
 			end
 		end
 
-		local angle = Angle(-self.Primary.KickUp, 0, 0);
+		local kickUp = self.Primary.KickUp or 1;
+		local angle = Angle(-kickUp, 0, 0);
 
 		self.Owner:ViewPunch(angle);
-		
-		-- This is ghetto as fuck rofl.
+
 		timer.Simple(0.15, function()
 			if IsValid(self) and IsValid(self.Owner) then
 				local eyes = self.Owner:EyeAngles();
-			
-				eyes.pitch = eyes.pitch - self.Primary.KickUp;
-
+				eyes.pitch = eyes.pitch - kickUp;
 				self.Owner:SetEyeAngles(eyes);
 			end
 		end);
@@ -813,11 +844,12 @@ function SWEP:IronSight()
 	
 	local bIron = self:GetIronsights();
    
-	if self.Owner:KeyPressed(IN_SPEED) --[[and not (self.Weapon:GetNWBool("Reloading"))]] then
+	if self.Owner:KeyPressed(IN_SPEED) and self.Owner:GetNWInt("Stamina", 100) > 0 then
 		if self.Weapon:GetNextPrimaryFire() <= (CurTime()+0.3) then
 			self.Weapon:SetNextPrimaryFire(CurTime()+0.3)                           -- Make it so you can't shoot for another quarter second
 		end
 		
+		self.bInRunSights = true
 		self.IronSightsPos = self.RunSightsPos                                  -- Hold it down
 		self.IronSightsAng = self.RunSightsAng                                  -- Hold it down
 		self:SetIronsights(true, self.Owner)                                    -- Set the ironsight true
@@ -832,6 +864,11 @@ function SWEP:IronSight()
 	end                                                            
  
 	if self.Owner:KeyReleased(IN_SPEED) then
+		if self.bInRunSights then
+			self.bInRunSights = false
+			self.IronSightsPos = self.SightsPos
+			self.IronSightsAng = self.SightsAng
+		end
 		self:SetIronsights(false, self.Owner)                        -- Set the ironsight true
 		self.Owner:SetFOV(0, self:GetIronsightTime() / 2);
 		self.DrawCrosshair = self.OrigCrossHair
@@ -843,7 +880,17 @@ function SWEP:IronSight()
 		end
 	end
 
-	if !self.Owner:KeyDown(IN_SPEED) then
+	if self.bInRunSights and (not self.Owner:KeyDown(IN_SPEED) or self.Owner:GetNWInt("Stamina", 100) <= 0) then
+		self.bInRunSights = false
+		self.IronSightsPos = self.SightsPos
+		self.IronSightsAng = self.SightsAng
+		if self:GetIronsights() then
+			self:SetIronsights(false, self.Owner);
+			self.DrawCrosshair = self.OrigCrossHair;
+		end
+	end
+
+	if !self.bInRunSights then
 		if self.Owner:KeyPressed(IN_ATTACK2) --[[and not (self.Weapon:GetNWBool("Reloading"))]] then
 			self.Owner:SetFOV(self.Secondary.IronFOV, self:GetIronsightTime() / 2);
 			self.IronSightsPos = self.SightsPos                                     -- Bring it up
@@ -913,6 +960,7 @@ function SWEP:Think()
 								
 								if ammo and #ammo > 0 and !itemTable.usesMagazine then
 									itemTable:SetData("Ammo", {});
+									itemTable:SetData("RoundConditions", {});
 									
 									Clockwork.player:Notify(self.Owner, "Your weapon fills with water and your powder charge is ruined!");
 								end
@@ -955,22 +1003,25 @@ end
 GetViewModelPosition
 -----------------------------------------------------*/
 
-local multiplier = 0;
- 
 function SWEP:GetViewModelPosition(pos, ang)
 	if (not self.IronSightsPos) then return pos, ang end
 
 	local bIron = self.Weapon:GetNWBool("M9K_Ironsights")
+	local ironsightTime = self:GetIronsightTime() or 0.25;
+	if ironsightTime <= 0 then ironsightTime = 0.25 end
+	local dt = math.min(FrameTime(), 0.05);
+
+	self.ironMultiplier = self.ironMultiplier or 0;
 
 	if bIron then
-		multiplier = math.Clamp(multiplier + (FrameTime() / (self:GetIronsightTime())), 0, 1)
+		self.ironMultiplier = math.Clamp(self.ironMultiplier + (dt / ironsightTime), 0, 1)
 	else
-		if multiplier == 0 then return pos, ang end;
+		if self.ironMultiplier == 0 then return pos, ang end;
 
-		multiplier = math.Clamp(multiplier - (FrameTime() / (self:GetIronsightTime())), 0, 1)
+		self.ironMultiplier = math.Clamp(self.ironMultiplier - (dt / ironsightTime), 0, 1)
 	end
 	
-	local viewMultiplier = math.ease.OutQuad(multiplier);
+	local viewMultiplier = math.ease.OutQuad(self.ironMultiplier);
 
 	local Offset = self.IronSightsPos
 

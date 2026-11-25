@@ -120,7 +120,11 @@ if SERVER then
 		self.PhysicsCollide = function() end
 		self.lifetime = CurTime() + 30
 		self.InFlight = false
-		self:SetCollisionGroup(COLLISION_GROUP_WEAPON)
+		timer.Simple(0, function()
+			if IsValid(self) then
+				self:SetCollisionGroup(COLLISION_GROUP_WEAPON);
+			end;
+		end);
 	end
 
 	/*---------------------------------------------------------
@@ -131,15 +135,29 @@ if SERVER then
 			local Ent = data.HitEntity
 			
 			if !(Ent:IsValid() or Ent:IsWorld()) then return end
+			if self._hitEntities and self._hitEntities[Ent] then return end
+
 
 			if Ent:IsWorld() and self.InFlight then
+				self.InFlight = false;
+				self.collided = true;
+				self:StopSound("weapons/throw_swing_03.wav");
+
 				if data.Speed > 500 then
-					self:StopSound("weapons/throw_swing_03.wav");
-					self:SetPos(data.HitPos - data.HitNormal * 10)
-					self:SetAngles(self:GetAngles())
-					self:GetPhysicsObject():EnableMotion(false)
+					local hitPos = data.HitPos - data.HitNormal * 10;
+					local hitAng = self:GetAngles();
+
+					timer.Simple(0, function()
+						if not IsValid(self) then return end;
+
+						local physObj = self:GetPhysicsObject();
+						self:SetPos(hitPos);
+						self:SetAngles(hitAng);
+						if IsValid(physObj) then
+							physObj:EnableMotion(false);
+						end;
+					end);
 				else
-					self:StopSound("weapons/throw_swing_03.wav");
 					self:EmitSound(self.Hit[math.random(1, #self.Hit)])
 				end
 				
@@ -242,8 +260,14 @@ if SERVER then
 					end
 				end
 				
+				self._hitEntities = self._hitEntities or {};
+				self._hitEntities[Ent] = true;
 				self:EmitSound(self.FleshHit[math.random(1, #self.FleshHit)])
-				self:SetCollisionGroup(COLLISION_GROUP_WORLD);
+				timer.Simple(0, function()
+					if IsValid(self) and self.InFlight then
+						self:SetCollisionGroup(COLLISION_GROUP_WORLD);
+					end;
+				end);
 				
 				return;
 			elseif Ent:IsPlayer() and (Ent:GetNetVar("Deflect") or Ent:GetNetVar("Parry")) then
@@ -314,10 +338,17 @@ if SERVER then
 			
 				return;
 			elseif Ent.iFrames then
-				local phys = bolt:GetPhysicsObject()
-				
-				self:SetCollisionGroup(COLLISION_GROUP_WORLD);
-				phys:SetVelocity(data.OurOldVelocity);
+				self._hitEntities = self._hitEntities or {};
+				self._hitEntities[Ent] = true;
+				local physObj = self:GetPhysicsObject()
+				timer.Simple(0, function()
+					if IsValid(self) and self.InFlight then
+						self:SetCollisionGroup(COLLISION_GROUP_WORLD);
+					end;
+				end);
+				if IsValid(physObj) then
+					physObj:SetVelocity(data.OurOldVelocity);
+				end;
 				Ent:EmitSound("meleesounds/comboattack3.wav.mp3", 75, math.random( 90, 110 ));
 				
 				return;

@@ -1342,18 +1342,26 @@ local zoneEventClasses = {
 };
 
 if Clockwork.command.RegisterType then
-	local zone_tbl = {}
-
-	hook.Add("ClockworkSchemaLoaded", "ZoneCMDType", function ()
-		zone_tbl = table.Merge(zones:GetAll(), zones.supraZones)
-		hook.Remove("ClockworkSchemaLoaded", "ZoneCMDType")
-	end)
-
 	Clockwork.command:RegisterType("Zones", function (current_arg, _args)
 		local matches = {}
+		local zone_tbl = {}
+
+		if (zones and zones.GetAll) then
+			local allZones = zones:GetAll();
+			if (allZones) then
+				for zone in pairs(allZones) do
+					zone_tbl[zone] = true;
+				end;
+			end;
+		end
+		if (zones and zones.supraZones) then
+			for zone in pairs(zones.supraZones) do
+				zone_tbl[zone] = true;
+			end;
+		end
 
 		for zone, v in pairs(zone_tbl) do
-			if string.find(string.lower(zone), string.lower(current_arg)) then
+			if string.find(string.lower(zone), string.lower(current_arg), 1, true) then
 				table.insert(matches, zone)
 			end
 		end
@@ -3216,7 +3224,8 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 				return false;
 			end
 			
-			if player:GetCharacterData("rank") == 10 and !player:GetCharacterData("kinisgerOverride") then -- Aspirants cannot helljaunt.
+			local kinOverride = player:GetCharacterData("kinisgerOverride");
+			if player:GetCharacterData("rank") == 10 and (not kinOverride or kinOverride == "" or player:GetSubfaction() ~= "Kinisger") then -- Aspirants cannot helljaunt; disguised Kinisgers may still return.
 				Schema:EasyText(player, "peru", "Aspirants cannot helljaunt!");
 				
 				return false;
@@ -3326,7 +3335,7 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 									return;
 								end
 								
-								if player:Alive() then
+								if player:Alive() and not player:IsRagdolled() and (player:GetNetVar("tied", 0) or 0) == 0 and not (player.cwInfoTable and (player.cwInfoTable.inventoryWeight or 0) > player:GetMaxWeight()) then
 									local target = player.cwHoldingEnt;
 								
 									Clockwork.player:SetSafePosition(player, destination);
@@ -3335,6 +3344,9 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 									util.Decal("PentagramBurn", origin, origin + Vector(0, 0, -256));
 									
 									hook.Run("PlayerTeleported", player);
+
+									-- Corruption is only paid for a completed jaunt.
+									player:HandleNeed("corruption", 50);
 
 									if IsValid(target) then
 										local destinationRaised = destination + Vector(0, 0, 32);
@@ -3372,6 +3384,11 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 										
 										hook.Run("PlayerTeleported", target);
 									end
+								else
+									hook.Run("RunModifyPlayerSpeed", player, player.cwInfoTable, true);
+									-- An interrupted jaunt refunds the cooldown.
+									player:SetCharacterData("nextTeleport", 0);
+									Schema:EasyText(player, "peru", "Your helljaunt was interrupted!");
 								end
 							end
 						end);
@@ -3379,12 +3396,6 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 						player:SetCharacterData("nextTeleport", 600);
 						
 						Schema:EasyText(player, "red", "You begin to helljaunt away!");
-						
-						timer.Simple(jauntTime, function()
-							if IsValid(player) and player:Alive() then
-									player:HandleNeed("corruption", 50);
-							end
-						end);
 					else
 						Schema:EasyText(player, "peru", "You cannot helljaunt for another "..nextTeleport.." seconds!");
 					end

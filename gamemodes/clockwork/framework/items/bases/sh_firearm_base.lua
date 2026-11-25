@@ -37,6 +37,8 @@ ITEM.ammoTypes = {};
 };]]--
 
 ITEM:AddData("Ammo", {}, true);
+ITEM:AddData("RoundConditions", {}, true);
+ITEM:AddData("MagCondition", -1, true);
 ITEM:AddData("engraving", "", true);
 ITEM:AddData("kills", 0, true);
 
@@ -170,8 +172,9 @@ end
 -- Called when a player has unequipped the item.
 function ITEM:OnPlayerUnequipped(player, extraData)
 	local weapon = player:GetWeapon(self.uniqueID);
+	local itemTable;
 	
-	if weapon then
+	if IsValid(weapon) then
 		itemTable = item.GetByWeapon(weapon);
 		
 		if (SERVER) then
@@ -191,50 +194,9 @@ function ITEM:OnPlayerUnequipped(player, extraData)
 		itemTable = self;
 	end
 
-	if (itemTable:IsTheSameAs(self)) then
+	if (itemTable and itemTable:IsTheSameAs(self)) then
 		if (extraData == "unload") then
-			local ammo = itemTable:GetData("Ammo");
-			
-			if ammo and #ammo > 0 then
-				if #ammo == 1 then
-					if itemTable.usesMagazine and string.find(ammo[1], "Magazine") then
-						local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-						local magazineItem = item.CreateInstance(ammoItemID);
-						
-						if magazineItem and magazineItem.SetAmmoMagazine then
-							magazineItem:SetAmmoMagazine(1);
-							
-							player:GiveItem(magazineItem);
-						end
-					else
-						local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-						
-						player:GiveItem(item.CreateInstance(ammoItemID));
-					end
-				elseif itemTable.usesMagazine then
-					local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-					local magazineItem = item.CreateInstance(ammoItemID);
-					
-					if magazineItem and magazineItem.SetAmmoMagazine then
-						magazineItem:SetAmmoMagazine(#ammo);
-						
-						player:GiveItem(magazineItem);
-					end
-				else
-					for i = 1, #ammo do
-						local round = ammo[i];
-						
-						if round then
-							local roundItemID = string.gsub(string.lower(round), " ", "_");
-							local roundItemInstance = item.CreateInstance(roundItemID);
-							
-							player:GiveItem(roundItemInstance);
-						end
-					end
-				end
-				
-				itemTable:SetData("Ammo", {});
-			end
+			item.UnloadWeaponAmmo(player, itemTable);
 		elseif (extraData != "drop") then
 			player:SelectWeapon("begotten_fists")
 			player:StripWeapon(itemTable.weaponClass)
@@ -545,3 +507,96 @@ end;
 function ITEM:OnHolster(player, bForced) end;
 
 Clockwork.item:Register(ITEM);
+
+if (SERVER) then
+	-- A function to unload a weapon's ammo/magazine while preserving round and magazine condition.
+	function item.UnloadWeaponAmmo(player, itemTable)
+		if not (IsValid(player) and itemTable and item.IsWeapon(itemTable)) then
+			return false;
+		end;
+
+		local ammo = itemTable:GetData("Ammo");
+		if not (ammo and #ammo > 0) then
+			return false;
+		end;
+
+		local unloadedAny = false;
+		local function giveOrDrop(instance)
+			if not instance then return end;
+			unloadedAny = true;
+			if not player:GiveItem(instance) then
+				Clockwork.entity:CreateItem(player, instance, player:GetPos() + Vector(0, 0, 16));
+			end;
+		end;
+
+		if #ammo == 1 then
+			if itemTable.usesMagazine and string.find(string.lower(ammo[1]), "magazine", 1, true) then
+				local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
+				local magazineItem = item.CreateInstance(ammoItemID, nil, nil, true);
+
+				if magazineItem and magazineItem.SetAmmoMagazine then
+					magazineItem:SetAmmoMagazine(1);
+					local magCond = itemTable:GetData("MagCondition");
+					if isnumber(magCond) and magCond >= 0 and magazineItem.SetCondition then
+						magazineItem:SetCondition(magCond);
+					end;
+					giveOrDrop(magazineItem);
+				elseif magazineItem and magazineItem.itemID then
+					item.instances[magazineItem.itemID] = nil;
+				end;
+			else
+				local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
+				local roundItemInstance = item.CreateInstance(ammoItemID, nil, nil, true);
+
+				if roundItemInstance then
+					local roundConditions = itemTable:GetData("RoundConditions");
+					if roundConditions and roundConditions[1] and roundItemInstance.SetCondition then
+						roundItemInstance:SetCondition(roundConditions[1]);
+					end;
+					giveOrDrop(roundItemInstance);
+				end;
+			end;
+		elseif itemTable.usesMagazine then
+			local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
+			local magazineItem = item.CreateInstance(ammoItemID, nil, nil, true);
+
+			if magazineItem and magazineItem.SetAmmoMagazine then
+				magazineItem:SetAmmoMagazine(#ammo);
+				local magCond = itemTable:GetData("MagCondition");
+				if isnumber(magCond) and magCond >= 0 and magazineItem.SetCondition then
+					magazineItem:SetCondition(magCond);
+				end;
+				giveOrDrop(magazineItem);
+			elseif magazineItem and magazineItem.itemID then
+				item.instances[magazineItem.itemID] = nil;
+			end;
+		else
+			local roundConditions = itemTable:GetData("RoundConditions");
+
+			for i = 1, #ammo do
+				local round = ammo[i];
+
+				if round then
+					local roundItemID = string.gsub(string.lower(round), " ", "_");
+					local roundItemInstance = item.CreateInstance(roundItemID, nil, nil, true);
+
+					if roundItemInstance then
+						if roundConditions and roundConditions[i] and roundItemInstance.SetCondition then
+							roundItemInstance:SetCondition(roundConditions[i]);
+						end;
+						giveOrDrop(roundItemInstance);
+					end;
+				end;
+			end;
+		end;
+
+		if not unloadedAny then
+			return false;
+		end;
+
+		itemTable:SetData("Ammo", {});
+		itemTable:SetData("RoundConditions", {});
+		itemTable:SetData("MagCondition", -1);
+		return true;
+	end;
+end;

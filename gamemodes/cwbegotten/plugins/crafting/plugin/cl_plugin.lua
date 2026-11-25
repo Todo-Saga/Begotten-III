@@ -230,50 +230,81 @@ function cwRecipes:PlayerMeetsCraftingItemRequirements(recipeTable, craftAmount)
 	local slottedItems = {};
 	local requirements = recipeTable.requirements;
 	
+	local itemLookup = {};
+	for _, v in pairs(inventory) do
+		for _, itemTable in pairs(v) do
+			if itemTable.itemID then
+				itemLookup[itemTable.itemID] = itemTable;
+			end
+		end
+	end
+
+	craftAmount = craftAmount or 1;
+	local seen = {};
 	for i = 1, #cwRecipes.slottedItems do
 		local itemID = cwRecipes.slottedItems[i];
-		
-		for k, v in pairs(inventory) do
-			for k2, v2 in pairs(v) do
-				if v2.itemID == itemID then
-					table.insert(slottedItems, Clockwork.inventory:FindItemByID(inventory, k, v2.itemID));
-					break;
-				end
+		if not seen[itemID] then
+			seen[itemID] = true;
+			local itemTable = itemLookup[itemID];
+			if itemTable then
+				table.insert(slottedItems, itemTable);
 			end
 		end
 	end
 	
-	local temptab = table.Copy(slottedItems);
-
-	for i = 1, craftAmount do
-		for k, v in pairs(requirements) do
-			local amount = v.amount;
-
-			for i = 1, amount do
-				local goods_found = false;
-
-				for j = 1, #temptab do
-					if temptab[j].uniqueID == k or temptab[j].uniqueID == v.substitute then
-						table.remove(temptab, j);
-						goods_found = true;
-						break;
-					end
-				end
-
-				if not goods_found then
-					Clockwork.chatBox:Add(nil, "icon16/error.png", Color(200, 175, 200, 255), "The items inputted for crafting do not match the selected recipe's requirements!");
-					return false;
-				end
-			end
-		end
-
-	end
-	
-	if #temptab > 0 then
+	local availableCounts = {};
+	local totalSlotted = #slottedItems;
+	if totalSlotted == 0 then
 		Clockwork.chatBox:Add(nil, "icon16/error.png", Color(200, 175, 200, 255), "The items inputted for crafting do not match the selected recipe's requirements!");
 		return false;
 	end
-	
+
+	for i = 1, totalSlotted do
+		local uid = slottedItems[i].uniqueID;
+		availableCounts[uid] = (availableCounts[uid] or 0) + 1;
+	end
+
+	local requiredTotal = 0;
+	local remainingNeeded = {};
+
+	for k, v in pairs(requirements) do
+		local baseAmt = v.amount or 1;
+		local needed = (v.noTake == true) and baseAmt or (baseAmt * craftAmount);
+		requiredTotal = requiredTotal + needed;
+		local havePrimary = availableCounts[k] or 0;
+		if havePrimary >= needed then
+			availableCounts[k] = havePrimary - needed;
+			remainingNeeded[k] = 0;
+		else
+			availableCounts[k] = 0;
+			remainingNeeded[k] = needed - havePrimary;
+		end
+	end
+
+	for k, v in pairs(requirements) do
+		local remaining = remainingNeeded[k] or 0;
+		if remaining > 0 then
+			if v.substitute then
+				local haveSub = availableCounts[v.substitute] or 0;
+				if haveSub >= remaining then
+					availableCounts[v.substitute] = haveSub - remaining;
+					remainingNeeded[k] = 0;
+				else
+					Clockwork.chatBox:Add(nil, "icon16/error.png", Color(200, 175, 200, 255), "The items inputted for crafting do not match the selected recipe's requirements!");
+					return false;
+				end
+			else
+				Clockwork.chatBox:Add(nil, "icon16/error.png", Color(200, 175, 200, 255), "The items inputted for crafting do not match the selected recipe's requirements!");
+				return false;
+			end
+		end
+	end
+
+	if totalSlotted ~= requiredTotal then
+		Clockwork.chatBox:Add(nil, "icon16/error.png", Color(200, 175, 200, 255), "The items inputted for crafting do not match the selected recipe's requirements!");
+		return false;
+	end
+
 	return true;
 end
 

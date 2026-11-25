@@ -68,7 +68,12 @@ SWEP.WElements = {
 }
 
 function SWEP:Deploy()
-	self.Owner:SetNetVar("lanternOnHip", false);
+	if SERVER then
+		self._cwLastSentItemID = nil;
+		self._cwSyncCount = 0;
+		self.nextItemSend = 0;
+		self.Owner:SetNetVar("lanternOnHip", false);
+	end;
 end;
 
 function SWEP:Initialize()
@@ -147,24 +152,7 @@ function SWEP:Think()
 		
 		-- Last ditch effort to fix the clientside itemtable desync.
 		if !self.nextItemSend or self.nextItemSend <= curTime then
-			if IsValid(player) and player:IsPlayer() then
-				local itemTable = item.GetByWeapon(self);
-					
-				if itemTable then
-					netstream.Start(player, "WeaponItemData", {
-						definition = item.GetDefinition(itemTable, true),
-						weapon = self:EntIndex()
-					})
-
-					if self:GetNWInt("ItemID") ~= itemTable.itemID then
-						self:SetNWInt("ItemID", itemTable.itemID)
-					end
-					
-					self.cwItemTable = itemTable
-				end
-			end
-			
-			self.nextItemSend = curTime + math.random(1, 5);
+			self.nextItemSend = curTime + (item.SyncWeaponEntity(self, player) or 5);
 		end
 		
 		if (IsValid(player)) then

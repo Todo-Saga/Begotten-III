@@ -1116,13 +1116,15 @@ function cwMedicalSystem:RemoveInjury(player, limb, uniqueID)
 end;
 
 function cwMedicalSystem:ResetInjuries(player)
+	player._cwLastSentInjuries = nil;
+	player._cwLastSentLimbs = nil;
 	player:SetCharacterData("Injuries", {});
 	player:SetMaxHealth(player:GetMaxHealth());
 end
 
 -- A function to get the player's limb damage tables.
 function cwMedicalSystem:GetLimbs(player)
-	local limbs = player:GetCharacterData("Limbs", {});
+	local limbs = player:GetCharacterData("Limbs");
 	
 	if (!limbs or !istable(limbs) or table.IsEmpty(limbs)) then
 		self:SetupPlayer(player, false);
@@ -1753,7 +1755,12 @@ function cwMedicalSystem:NetworkInjuries(player)
 	local injuries = self:FlattenInjuries(player);
 		
 	if (string.len(injuries) > 2) then
-		netstream.Start(player, "NetworkInjuries", injuries);
+		if (player._cwLastSentInjuries ~= injuries) then
+			player._cwLastSentInjuries = injuries;
+			netstream.Start(player, "NetworkInjuries", injuries);
+		end;
+	elseif (player._cwLastSentInjuries) then
+		player._cwLastSentInjuries = nil;
 	end;
 end;
 
@@ -1762,7 +1769,12 @@ function cwMedicalSystem:NetworkLimbs(player)
 	local limbs = self:FlattenLimbs(player);
 
 	if (string.len(limbs) > 2) then
-		netstream.Start(player, "NetworkLimbs", limbs);
+		if (player._cwLastSentLimbs ~= limbs) then
+			player._cwLastSentLimbs = limbs;
+			netstream.Start(player, "NetworkLimbs", limbs);
+		end;
+	elseif (player._cwLastSentLimbs) then
+		player._cwLastSentLimbs = nil;
 	end;
 end;
 

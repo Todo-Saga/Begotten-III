@@ -13,31 +13,45 @@ function cwWarmth:PostPlayerCharacterLoaded(player)
 	player:SetLocalVar("warmth", player:GetCharacterData("warmth", 100));
 end
 
+local cachedFires = {};
+local nextFireCache = 0;
+
+local function IsNearFire(pos)
+	local curTime = CurTime();
+	if (curTime >= nextFireCache) then
+		nextFireCache = curTime + 1;
+		cachedFires = ents.FindByClass("env_fire");
+	end;
+
+	for i = 1, #cachedFires do
+		local fire = cachedFires[i];
+		if (IsValid(fire) and fire:GetPos():DistToSqr(pos) <= 102400) then -- 320^2 = 102400
+			return true;
+		end;
+	end;
+	return false;
+end;
+
 -- Called at an interval for every active item entity.
-function cwWarmth:ItemEntityThink(entity, itemTable)	
+function cwWarmth:ItemEntityThink(entity, itemTable)
 	local freezing = itemTable:GetData("freezing");
 
 	if freezing then
+		local entPos = entity:GetPos();
+
 		for k, v in pairs(zones.stored) do
 			local boundsTable = v.bounds;
 			
 			if boundsTable then
-				local entPos = entity:GetPos();
-				
 				if table.IsSequential(boundsTable) then
 					for i, v2 in ipairs(boundsTable) do
 						if entPos:WithinAABox(v2.min, v2.max) then
 							if v.hasWarmth then
-								local ents = ents.FindInSphere(entity:GetPos(), 320);
-				
-								for i, v3 in ipairs(ents) do
-									if v3:GetClass() == "env_fire" then
-										if freezing > 0 then
-											itemTable:SetData("freezing", math.max(freezing - 5, 0));
-										end
-										
-										return;
+								if IsNearFire(entPos) then
+									if freezing > 0 then
+										itemTable:SetData("freezing", math.max(freezing - 5, 0));
 									end
+									return;
 								end
 								
 								if freezing < 100 then
@@ -53,16 +67,11 @@ function cwWarmth:ItemEntityThink(entity, itemTable)
 				else
 					if entPos:WithinAABox(boundsTable.min, boundsTable.max) then
 						if v.hasWarmth then
-							local ents = ents.FindInSphere(entity:GetPos(), 320);
-			
-							for i, v2 in ipairs(ents) do
-								if v2:GetClass() == "env_fire" then
-									if freezing > 0 then
-										itemTable:SetData("freezing", math.max(freezing - 5, 0));
-									end
-									
-									return;
+							if IsNearFire(entPos) then
+								if freezing > 0 then
+									itemTable:SetData("freezing", math.max(freezing - 5, 0));
 								end
+								return;
 							end
 							
 							if freezing < 100 then
@@ -79,16 +88,11 @@ function cwWarmth:ItemEntityThink(entity, itemTable)
 		end
 
 		-- If no zone is found, assume it's the default zone.
-		local ents = ents.FindInSphere(entity:GetPos(), 320);
-
-		for i, v in ipairs(ents) do
-			if v:GetClass() == "env_fire" then
-				if freezing > 0 then
-					itemTable:SetData("freezing", math.max(freezing - 5, 0));
-				end
-				
-				return;
+		if IsNearFire(entPos) then
+			if freezing > 0 then
+				itemTable:SetData("freezing", math.max(freezing - 5, 0));
 			end
+			return;
 		end
 		
 		if freezing < 100 then

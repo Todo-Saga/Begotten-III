@@ -858,16 +858,24 @@ function PANEL:Init()
 
 		if(!this:GetParent().selectedRecipe) then return; end
 
-		local itemsNeeded = 0;
+		local fixedItems = 0;
+		local perCraftItems = 0;
 
 		for i, v in pairs(cwRecipes.recipes.stored[this:GetParent().selectedRecipe].requirements) do
-			itemsNeeded = itemsNeeded + v.amount;
-
+			local amt = v.amount or 1;
+			if (v.noTake == true) then
+				fixedItems = fixedItems + amt;
+			else
+				perCraftItems = perCraftItems + amt;
+			end;
 		end
 
-		local targetCraftAmount = input.IsKeyDown(KEY_LSHIFT) and math.floor(9/itemsNeeded) or this.craftAmount+1;
+		if (perCraftItems <= 0) then return; end;
 
-		if(itemsNeeded*(targetCraftAmount) > 9) then return; end
+		local maxCraft = math.max(1, math.floor((9 - fixedItems) / perCraftItems));
+		local targetCraftAmount = input.IsKeyDown(KEY_LSHIFT) and maxCraft or (this.craftAmount + 1);
+
+		if (fixedItems + perCraftItems * targetCraftAmount > 9) or targetCraftAmount == this.craftAmount then return; end
 		
 		this.craftAmount = targetCraftAmount;
 
@@ -899,18 +907,10 @@ function PANEL:Init()
 
 		if(!this:GetParent().selectedRecipe) then return; end
 
-		local itemsNeeded = 0;
+		local targetCraftAmount = math.max(input.IsKeyDown(KEY_LSHIFT) and 1 or (this.craftAmount - 1), 1);
+		if targetCraftAmount == this.craftAmount then return; end
 
-		for i, v in pairs(cwRecipes.recipes.stored[this:GetParent().selectedRecipe].requirements) do
-			itemsNeeded = itemsNeeded + v.amount;
-
-		end
-
-		local targetCraftAmount = input.IsKeyDown(KEY_LSHIFT) and 1 or this.craftAmount-1;
-
-		if(itemsNeeded*(this.craftAmount-1) > 9) then return; end
-		
-		this.craftAmount = math.max(this.craftAmount - 1, 1);
+		this.craftAmount = targetCraftAmount;
 
 		this:GetParent():UpdateSelectedRecipe(this:GetParent().selectedRecipe);
 

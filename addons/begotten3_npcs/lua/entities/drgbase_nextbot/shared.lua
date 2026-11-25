@@ -445,6 +445,28 @@ if SERVER then
 		end)
 	end
 	function ENT:BehaveUpdate()
+		local curTime = CurTime();
+		if (not self.nextAbyssCheck or self.nextAbyssCheck < curTime) then
+			self.nextAbyssCheck = curTime + 0.4;
+			local pos = self:GetPos();
+			if (pos.z <= -16000) then
+				self:HandleStuck();
+				if not IsValid(self) then return end
+			elseif (self:IsOnGround() and (not self.nextGroundPosSave or curTime >= self.nextGroundPosSave)) then
+				self.nextGroundPosSave = curTime + 2.0;
+				if util.IsInWorld(pos) then
+					local tr = util.TraceLine({
+						start = pos + Vector(0, 0, 8),
+						endpos = pos - Vector(0, 0, 32),
+						filter = self,
+						mask = MASK_NPCWORLDSTATIC
+					});
+					if tr.Hit and IsValid(navmesh.GetNearestNavArea(tr.HitPos, false, 128, false, true)) then
+						self.LastKnownGroundPos = tr.HitPos;
+					end;
+				end;
+			end;
+		end;
 		if not self.BehaveThread then return end
 		if coroutine.status(self.BehaveThread) ~= "dead" then
 			local ok, args = coroutine.resume(self.BehaveThread)

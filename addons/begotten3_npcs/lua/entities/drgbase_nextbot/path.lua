@@ -72,6 +72,7 @@ function ENT:BlacklistedNavAreas()
 end
 
 function ENT:GetPathGenerator()
+	local stepHeight = self.loco:GetStepHeight()
 	return function(area, fromArea, ladder, elevator, length)
 		if not IsValid(fromArea) then return 0 end
 		if self:IsNavAreaBlacklisted(area) then return -1 end
@@ -102,7 +103,7 @@ function ENT:GetPathGenerator()
 		else
 			local height = fromArea:ComputeAdjacentConnectionHeightChange(area)
 			if height > 0 then
-				if height < self.loco:GetStepHeight() then
+				if height < stepHeight then
 					local res = self:OnComputePathStep(fromArea, area, height)
 					if res >= 0 then cost = cost + dist * res else return -1 end
 				elseif self.ClimbLedges then

@@ -273,10 +273,10 @@ if SERVER then
 		[NPC_STATE_DEAD] = true
 	}
 	function ENT:IsIgnored(ent)
+		if not IsValid(ent) then return true end
+		if ent.cwIgnoreAI then return true end
 		if Clockwork then -- bgt change
 			if ent:GetClass() == "prop_ragdoll" then
-				local ragdollPlayer = Clockwork.entity:GetPlayer(ent);
-				
 				if ent:GetNWEntity("Player") == game.GetWorld() then
 					return true;
 				end
@@ -284,6 +284,7 @@ if SERVER then
 				local ragdollPlayer = Clockwork.entity:GetPlayer(ent);
 	
 				if IsValid(ragdollPlayer) then
+					if ragdollPlayer.cwIgnoreAI then return true end
 					if ragdollPlayer:IsRagdolled() then
 						ent = ragdollPlayer;
 					end

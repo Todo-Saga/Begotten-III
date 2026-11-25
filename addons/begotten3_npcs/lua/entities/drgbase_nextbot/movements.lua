@@ -688,7 +688,60 @@ if SERVER then
 	function ENT:CustomClimbing() end
 
 	function ENT:HandleStuck()
+		local pos = self:GetPos()
+
+		local function CanOccupyPos(targetPos)
+			if not util.IsInWorld(targetPos) then return false end
+			local hullCheck = util.TraceHull({
+				start = targetPos,
+				endpos = targetPos,
+				filter = self,
+				mins = self:OBBMins(),
+				maxs = self:OBBMaxs(),
+				mask = MASK_NPCSOLID
+			})
+			return not hullCheck.Hit and not hullCheck.StartSolid
+		end
+
+		if not util.IsInWorld(pos) or pos.z <= -16000 then
+			local area = navmesh.GetNearestNavArea(pos, true, 4000, false, false)
+			if IsValid(area) then
+				local validPos = area:GetClosestPointOnArea(pos) + Vector(0, 0, 8)
+				if CanOccupyPos(validPos) then
+					self:SetPos(validPos)
+					if self.loco then self.loco:SetVelocity(vector_origin) end
+					self:InvalidatePath()
+					self:ClearStuck()
+					return
+				end
+			end
+
+			if self.LastKnownGroundPos and self.LastKnownGroundPos.z > -16000 then
+				local groundDest = self.LastKnownGroundPos + Vector(0, 0, 8)
+				if CanOccupyPos(groundDest) then
+					self:SetPos(groundDest)
+					if self.loco then self.loco:SetVelocity(vector_origin) end
+					self:InvalidatePath()
+					self:ClearStuck()
+					return
+				end
+			end
+
+			self._cwOOWStuckFails = (self._cwOOWStuckFails or 0) + 1
+			if pos.z <= -16000 or self._cwOOWStuckFails >= 3 then
+				self:Remove()
+				return
+			end
+		end
+
 		self:ClearStuck()
+	end
+
+	function ENT:OnStuck()
+		local pos = self:GetPos()
+		if not util.IsInWorld(pos) or pos.z <= -16000 then
+			self:HandleStuck()
+		end
 	end
 
 	-- A function to make an NPC bash down a door. bgt change

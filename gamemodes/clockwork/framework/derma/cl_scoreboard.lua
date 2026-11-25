@@ -99,10 +99,17 @@ function PANEL:Rebuild()
 			local panelList = vgui.Create("DPanelList", self);
 			
 			for k2, v2 in pairs(v.players) do
+				local dispFaction = v2:GetFaction();
+				if (not Clockwork.Client:IsAdmin() and Clockwork.Client:GetFaction() ~= "Children of Satan") then
+					local override = v2:GetNetVar("kinisgerOverride");
+					if (override and override ~= "") then
+						dispFaction = override;
+					end;
+				end;
 				self.playerData = {
 					avatarImage = true,
 					steamName = v2:SteamName(),
-					faction = v2:GetFaction(),
+					faction = dispFaction,
 					player = v2,
 					class = _team.GetName(v2:Team()),
 					model = v2:GetModel(),
@@ -141,7 +148,9 @@ function PANEL:OnMenuOpened()
 end;
 
 -- Called when the panel is selected.
-function PANEL:OnSelected() self:Rebuild(); end;
+function PANEL:OnSelected()
+	self:Rebuild();
+end;
 
 -- Called when the layout should be performed.
 function PANEL:PerformLayout(w, h)
@@ -157,9 +166,7 @@ function PANEL:Paint(w, h)
 end;
 
 -- Called each frame.
-function PANEL:Think()
-	self:InvalidateLayout(true);
-end;
+function PANEL:Think() end;
 
 vgui.Register("cwScoreboard", PANEL, "EditablePanel");
 
@@ -168,24 +175,30 @@ local PANEL = {};
 -- Called when the panel is initialized.
 function PANEL:Init()
 	SCOREBOARD_PANEL = true;
-		self:SetSize(self:GetParent():GetWide(), 32);
+		local parent = self:GetParent();
+		local parentWide = (IsValid(parent) and parent:GetWide()) or ScrW();
+		self:SetSize(parentWide, 32);
 		
-		local playerData = self:GetParent().playerData;
+		local playerData = (IsValid(parent) and parent.playerData) or {};
+		local targetPlayer = playerData.player;
 		local info = {
-			doesRecognise = Clockwork.player:DoesRecognise(playerData.player),
+			doesRecognise = (IsValid(targetPlayer) and Clockwork.player:DoesRecognise(targetPlayer)) or false,
 			avatarImage = playerData.avatarImage,
-			steamName = playerData.steamName,
-			faction = playerData.faction,
-			player = playerData.player,
-			class = playerData.class,
-			model = playerData.model,
-			skin = playerData.skin,
-			name = playerData.name
+			steamName = playerData.steamName or (IsValid(targetPlayer) and targetPlayer:SteamName()) or "Unknown",
+			faction = playerData.faction or (IsValid(targetPlayer) and targetPlayer:GetFaction()) or "Unknown",
+			player = targetPlayer,
+			class = playerData.class or (IsValid(targetPlayer) and _team.GetName(targetPlayer:Team())) or "Unknown",
+			model = playerData.model or (IsValid(targetPlayer) and targetPlayer:GetModel()) or "models/error.mdl",
+			skin = playerData.skin or (IsValid(targetPlayer) and targetPlayer:GetSkin()) or 0,
+			name = playerData.name or (IsValid(targetPlayer) and targetPlayer:Name()) or "Unknown"
 		};
 		
-		info.text = Clockwork.plugin:Call("GetPlayerScoreboardText", info.player);
-		
-		Clockwork.plugin:Call("ScoreboardAdjustPlayerInfo", info);
+		if (IsValid(info.player)) then
+			info.text = Clockwork.plugin:Call("GetPlayerScoreboardText", info.player);
+			Clockwork.plugin:Call("ScoreboardAdjustPlayerInfo", info);
+		else
+			info.text = nil;
+		end;
 		
 		self.toolTip = info.toolTip;
 		self.player = info.player;
@@ -219,9 +232,11 @@ function PANEL:Init()
 		
 		-- Called when the spawn icon is clicked.
 		function self.spawnIcon.DoClick(spawnIcon)
-			local options = {};
+			if (IsValid(info.player)) then
+				local options = {};
 				Clockwork.plugin:Call("GetPlayerScoreboardOptions", info.player, options);
-			Clockwork.kernel:AddMenuFromData(nil, options);
+				Clockwork.kernel:AddMenuFromData(nil, options);
+			end;
 		end;
 		
 		self.avatarImage = vgui.Create("AvatarImage", self);
@@ -234,42 +249,54 @@ function PANEL:Init()
 		self.avatarButton:SetDrawBackground(false);
 
 		if (info.avatarImage) then
-			self.avatarButton:SetToolTip("This player's name is "..info.steamName..".\nThis player's Steam ID is "..info.player:SteamID()..".");
+			local steamID = (IsValid(info.player) and info.player:SteamID()) or "Unknown";
+			self.avatarButton:SetToolTip("This player's name is "..(info.steamName or "")..".\nThis player's Steam ID is "..steamID..".");
 			self.avatarButton.DoClick = function(button)
 				if (IsValid(info.player)) then
 					info.player:ShowProfile();
 				end;
 			end;
 
-			self.avatarImage:SetPlayer(info.player);
+			if (IsValid(info.player)) then
+				self.avatarImage:SetPlayer(info.player);
+			end;
+		end;
+		if (self.toolTip and IsValid(self.spawnIcon)) then
+			self.spawnIcon:SetToolTip(self.toolTip);
 		end;
 	SCOREBOARD_PANEL = nil;
 end;
 
 -- Called each frame.
 function PANEL:Think()
-	if (IsValid(self.player)) then
-		if (self.toolTip) then
-			self.spawnIcon:SetToolTip(self.toolTip);
-		else
+	if (!self.toolTip and IsValid(self.player) and IsValid(self.spawnIcon)) then
+		local curTime = CurTime();
+		if (!self.nextPingUpdate or self.nextPingUpdate < curTime) then
+			self.nextPingUpdate = curTime + 2.0;
 			self.spawnIcon:SetToolTip("This player's ping is "..self.player:Ping()..".");
 		end;
 	end;
-	
-	self.spawnIcon:SetPos(1, 1);
-	self.spawnIcon:SetSize(30, 30);
 end;
 -- Called when the layout should be performed.
 function PANEL:PerformLayout(w, h)
-	self.factionLabel:SizeToContents();
+	if IsValid(self.factionLabel) then
+		self.factionLabel:SizeToContents();
+		self.factionLabel:SetPos(80, 30 - self.factionLabel:GetTall());
+	end;
 	
-	self.spawnIcon:SetPos(1, 1);
-	self.spawnIcon:SetSize(30, 30);
-	self.avatarImage:SetPos(40, 1);
-	self.avatarImage:SetSize(30, 30);
+	if IsValid(self.spawnIcon) then
+		self.spawnIcon:SetPos(1, 1);
+		self.spawnIcon:SetSize(30, 30);
+	end;
 	
-	self.nameLabel:SetPos(80, 2);
-	self.factionLabel:SetPos(80, 30 - self.factionLabel:GetTall());
+	if IsValid(self.avatarImage) then
+		self.avatarImage:SetPos(40, 1);
+		self.avatarImage:SetSize(30, 30);
+	end;
+	
+	if IsValid(self.nameLabel) then
+		self.nameLabel:SetPos(80, 2);
+	end;
 end;
 local squa = Material("begotten/ui/infotextsquash.png")
 local scra = Material("begotten/ui/generic_scratch.png")

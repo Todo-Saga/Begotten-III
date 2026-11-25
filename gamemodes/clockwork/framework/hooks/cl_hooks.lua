@@ -2593,12 +2593,21 @@ function GM:HUDDrawTargetID()
 								end]]--
 								
 								local playerEntity = entity;
+
+								if (IsValid(player) and player:IsRagdolled() and entity:GetClass() ~= "prop_ragdoll") then
+									local ragdoll = player:GetRagdollEntity();
+
+									if (IsValid(ragdoll)) then
+										playerEntity = ragdoll;
+									end;
+								end;
+
 								local position = Clockwork.plugin:Call("GetPlayerTypingDisplayPosition", player)
 
 								if (!position) then
 									local boneID;
 									
-									if entity:GetClass() == "prop_ragdoll" then
+									if playerEntity:GetClass() == "prop_ragdoll" then
 										boneID = playerEntity:LookupBone("ValveBiped.Bip01_Spine1") or playerEntity:LookupBone("ValveBiped.Bip01_Spine") or playerEntity:LookupBone("ValveBiped.Bip01_Pelvis");
 									else
 										boneID = playerEntity:LookupBone("ValveBiped.Bip01_Head1") or playerEntity:LookupBone("ValveBiped.Head");
@@ -2608,8 +2617,8 @@ function GM:HUDDrawTargetID()
 										local bonePosition = playerEntity:GetBonePosition(boneID)
 										
 										if (!bonePosition) then
-											local ragdolled = playerEntity:IsRagdolled()
-											local vehicle = playerEntity:InVehicle()
+											local ragdolled = (IsValid(player) and player:IsRagdolled())
+											local vehicle = (IsValid(player) and player:InVehicle())
 											local add = 80
 
 											if (vehicle) then
@@ -2620,14 +2629,14 @@ function GM:HUDDrawTargetID()
 												add = 64
 											end
 											
-											position = entityPosition + Vector(0, 0, add)
+											position = playerEntity:GetPos() + Vector(0, 0, add)
 										else
 											position = bonePosition + Vector(0, 0, 18)
 										end
 									end
 									
 									if (!position) then
-										position = entityPosition
+										position = playerEntity:GetPos()
 									end
 								end
 								

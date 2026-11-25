@@ -539,7 +539,7 @@ function Schema:GetEntityMenuOptions(entity, options)
 				end
 			end
 				
-			if (!player or (player and (!player:Alive() or player:GetMoveType() ~= MOVETYPE_OBSERVER))) then
+			if (!IsValid(player) or !player:Alive() or player:GetRagdollEntity() ~= entity) then
 				local model = entity:GetModel();
 				
 				if table.HasValue(animalModels, entity:GetModel()) then
@@ -703,7 +703,8 @@ function Schema:GetTargetPlayerName(player)
 		return player:Name();
 	end
 	
-	local subfaction = player:GetSubfaction();
+	local overrideSub = player:GetNetVar("kinisgerOverrideSubfaction");
+	local subfaction = (overrideSub and overrideSub ~= "") and overrideSub or player:GetSubfaction();
 
 	if subfaction == "Praeventor" or subfaction == "Outrider" then
 		local clientFaction = Clockwork.Client:GetFaction();

@@ -142,9 +142,9 @@ function GM:OnePlayerSecond(player, curTime, infoTable)
 	end
 
 	if (drunkTab) then
-		for k, v in pairs(drunkTab) do
-			if (curTime >= v) then
-				table.remove(drunkTab, k)
+		for i = #drunkTab, 1, -1 do
+			if (curTime >= drunkTab[i]) then
+				table.remove(drunkTab, i)
 			end
 		end
 		
@@ -1450,6 +1450,10 @@ function GM:EntityFireBullets(entity, bulletInfo) end
 
 -- Called when a player's fall damage is needed.
 function GM:GetFallDamage(player, velocity)
+	if (player.cwNextFallDamage and player.cwNextFallDamage > CurTime()) then
+		return 0;
+	end;
+
 	--local ragdollEntity = nil
 	local position = player:GetPos()
 	local damage = math.max((velocity - 464) * 0.225225225, 0) * config.GetVal("scale_fall_damage")
@@ -2875,7 +2879,7 @@ function GM:EntityHandleMenuOption(player, entity, option, arguments)
 				player:SetItemEntity(nil)
 			end
 		elseif (arguments == "cwItemRepair") then
-			local itemCondition = itemTable:GetCondition();
+			local itemCondition = itemTable:GetCondition() or 100;
 
 			if itemCondition < 100 then
 				if itemTable.repairItem then
@@ -2890,20 +2894,7 @@ function GM:EntityHandleMenuOption(player, entity, option, arguments)
 					end
 		
 					if repairItemTable then
-						local conditionReplenishment = repairItemTable.conditionReplenishment or 100;
-						local replenishment = (conditionReplenishment) - (((100 - repairItemTable:GetCondition()) * (itemTable.repairCostModifier or 1)) * (conditionReplenishment / 100));
-						
-						itemTable:GiveCondition(math.min(replenishment, 100));
-						repairItemTable:TakeCondition((itemTable:GetCondition() - itemCondition) * (itemTable.repairCostModifier or 1) / (conditionReplenishment / 100));
-						
-						if repairItemTable:GetCondition() <= 0 then
-							player:TakeItem(repairItemTable, true);
-							
-							Schema:EasyText(player, "olivedrab", "You have repaired your "..itemTable.name.." to "..tostring(math.Round(itemTable:GetCondition(), 2))..", using the last of the repair kit's parts in the process.");
-						else
-							Schema:EasyText(player, "green", "You have repaired your "..itemTable.name.." to "..tostring(math.Round(itemTable:GetCondition(), 2))..".");
-							Clockwork.inventory:Rebuild(player);
-						end
+						Clockwork.inventory:ApplyRepairKit(player, itemTable, repairItemTable, true);
 					else
 						Schema:EasyText(player, "chocolate", "You do not have an item you can repair this item with!");
 						return false;
@@ -2914,7 +2905,7 @@ function GM:EntityHandleMenuOption(player, entity, option, arguments)
 				return false;
 			end
 		elseif (arguments == "cwItemExamine") then
-			local itemCondition = itemTable:GetCondition();
+			local itemCondition = itemTable:GetCondition() or 100;
 			local itemEngraving = itemTable:GetData("engraving");
 			local examineText = itemTable.description
 			local conditionTextCategories = {"Armor", "Crossbows", "Firearms", "Helms", "Melee", "Shields", "Throwables"};
@@ -2957,50 +2948,7 @@ function GM:EntityHandleMenuOption(player, entity, option, arguments)
 
 			Schema:EasyText(player, itemTable.examineColor or "skyblue", examineText)
 		elseif (arguments == "cwItemAmmo") then
-			if (item.IsWeapon(itemTable)) then
-				local ammo = itemTable:GetData("Ammo");
-				
-				if ammo and #ammo > 0 then
-					if #ammo == 1 then
-						if itemTable.usesMagazine and string.find(ammo[1], "Magazine") then
-							local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-							local magazineItem = item.CreateInstance(ammoItemID, nil, nil, true);
-							
-							if magazineItem and magazineItem.SetAmmoMagazine then
-								magazineItem:SetAmmoMagazine(1);
-								
-								player:GiveItem(magazineItem);
-							end
-						else
-							local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-							
-							player:GiveItem(item.CreateInstance(ammoItemID, nil, nil, true));
-						end
-					elseif itemTable.usesMagazine then
-						local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-						local magazineItem = item.CreateInstance(ammoItemID, nil, nil, true);
-						
-						if magazineItem and magazineItem.SetAmmoMagazine then
-							magazineItem:SetAmmoMagazine(#ammo);
-							
-							player:GiveItem(magazineItem);
-						end
-					else
-						for i = 1, #ammo do
-							local round = ammo[i];
-							
-							if round then
-								local roundItemID = string.gsub(string.lower(round), " ", "_");
-								local roundItemInstance = item.CreateInstance(roundItemID, nil, nil, true);
-								
-								player:GiveItem(roundItemInstance);
-							end
-						end
-					end
-					
-					itemTable:SetData("Ammo", {});
-				end
-			end
+			item.UnloadWeaponAmmo(player, itemTable);
 		elseif (arguments == "cwItemMagazineAmmo") then
 			if (itemTable.category == "Shot" and itemTable.ammoMagazineSize) then
 				if itemTable.TakeFromMagazine then

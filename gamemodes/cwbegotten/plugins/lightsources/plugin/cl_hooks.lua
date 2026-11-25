@@ -120,10 +120,23 @@ function cwLantern:Think()
 		
 		local entIndex = k:EntIndex();
 		local dynamicLight = DynamicLight(entIndex);
-		local bonePositon = k:GetBonePosition(handIndex);
+		local lightPos;
+
+		if k == Clockwork.Client and !k:ShouldDrawLocalPlayer() and !k:GetNetVar("lanternOnHip", false) then
+			local eyePos = k:EyePos();
+			local eyeAng = k:EyeAngles();
+			lightPos = eyePos + eyeAng:Forward() * 14 + eyeAng:Right() * 8 - eyeAng:Up() * 10;
+		else
+			local bonePos = handIndex and k:GetBonePosition(handIndex);
+			if bonePos and bonePos ~= k:GetPos() then
+				lightPos = bonePos - Vector(0, 0, 20);
+			else
+				lightPos = k:EyePos() + k:GetForward() * 15 - Vector(0, 0, 15);
+			end
+		end
 		
-		if (dynamicLight) then
-			dynamicLight.Pos = bonePositon - Vector(0, 0, 20); 
+		if (dynamicLight and lightPos) then
+			dynamicLight.Pos = lightPos; 
 			dynamicLight.r = 255;
 			dynamicLight.g = 200;
 			dynamicLight.b = 115;

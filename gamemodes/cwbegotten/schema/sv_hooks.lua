@@ -490,7 +490,7 @@ function Schema:EntityHandleMenuOption(player, entity, option, arguments)
 		if (arguments == "cw_corpseLoot") then
 			local entityPlayer = Clockwork.entity:GetPlayer(entity);
 			
-			if (!entityPlayer or (entityPlayer and (!entityPlayer:Alive() or entityPlayer:GetMoveType() ~= MOVETYPE_OBSERVER))) then
+			if (!IsValid(entityPlayer) or !entityPlayer:Alive() or entityPlayer:GetRagdollEntity() ~= entity) then
 				if (!entity.cwInventory) then entity.cwInventory = {}; end;
 				if (!entity.cwCash) then entity.cwCash = 0; end;
 
@@ -1719,7 +1719,7 @@ function Schema:Think()
 			end
 			
 			if map == "rp_district21" and cwDayNight and cwDayNight.currentCycle == "night" then
-				if self.npcSpawns["thrallnight"] and #self.spawnedNPCs["thrall"] < self.maxNPCs["thrallnight"] then
+				if self.npcSpawns["thrallnight"] and (#self.spawnedNPCs["thrall"] + (self.pendingThrallSpawns or 0)) < self.maxNPCs["thrallnight"] then
 					local spawnPos = self.npcSpawns["thrallnight"][math.random(1, #self.npcSpawns["thrallnight"])].pos;
 					local thrallNPCs = {"npc_bgt_another", "npc_bgt_guardian", "npc_bgt_otis", "npc_bgt_pursuer", "npc_bgt_shambler"};
 						
@@ -1732,7 +1732,9 @@ function Schema:Think()
 					ParticleEffect("teleport_fx", spawnPos, Angle(0,0,0), nil);
 					sound.Play("misc/summon.wav", spawnPos, 100, 100);
 					
+					self.pendingThrallSpawns = (self.pendingThrallSpawns or 0) + 1;
 					timer.Simple(0.75, function()
+						self.pendingThrallSpawns = math.max(0, (self.pendingThrallSpawns or 1) - 1);
 						local entity = cwZombies:SpawnThrall(npcName, spawnPos, Angle(0, math.random(1, 359), 0));
 						
 						if IsValid(entity) then
@@ -1741,7 +1743,7 @@ function Schema:Think()
 					end);
 				end
 			else
-				if self.npcSpawns["thrall"] and #self.spawnedNPCs["thrall"] < self.maxNPCs["thrall"] then
+				if self.npcSpawns["thrall"] and (#self.spawnedNPCs["thrall"] + (self.pendingThrallSpawns or 0)) < self.maxNPCs["thrall"] then
 					local spawnPos = self.npcSpawns["thrall"][math.random(1, #self.npcSpawns["thrall"])].pos;
 					local thrallNPCs;
 					
@@ -1766,7 +1768,9 @@ function Schema:Think()
 					ParticleEffect("teleport_fx", spawnPos, Angle(0,0,0), nil);
 					sound.Play("misc/summon.wav", spawnPos, 100, 100);
 					
+					self.pendingThrallSpawns = (self.pendingThrallSpawns or 0) + 1;
 					timer.Simple(0.75, function()
+						self.pendingThrallSpawns = math.max(0, (self.pendingThrallSpawns or 1) - 1);
 						local entity = cwZombies:SpawnThrall(npcName, spawnPos, Angle(0, math.random(1, 359), 0));
 						
 						if IsValid(entity) then
@@ -1812,13 +1816,17 @@ function Schema:PlayerThink(player, curTime, infoTable, alive, initialized, plyT
 		local moveType = player:GetMoveType();
 		local waterLevel = infoTable.waterLevel;
 		
-		if (moveType == MOVETYPE_NOCLIP) then
+		if (moveType == MOVETYPE_NOCLIP or moveType == MOVETYPE_LADDER or player:InVehicle()) then
 			if (plyTab.bOnGround) then
 				plyTab.bOnGround = nil;
 			end;
 			
 			if (plyTab.bWasInAir) then
 				plyTab.bWasInAir = nil;
+			end;
+
+			if (plyTab.peakFallSpeed) then
+				plyTab.peakFallSpeed = nil;
 			end;
 		end;	
 		
@@ -1833,18 +1841,26 @@ function Schema:PlayerThink(player, curTime, infoTable, alive, initialized, plyT
 				end;
 				
 				plyTab.bWasInAir = nil;
+				plyTab.peakFallSpeed = nil;
 			end;
 		else
+			local fallSpeed = -player:GetVelocity().z;
+			if fallSpeed > (plyTab.peakFallSpeed or 0) then
+				plyTab.peakFallSpeed = fallSpeed;
+			end;
+
 			if (plyTab.bWasInAir) then
 				if (waterLevel >= 1) then
 					hook.Run("HitGroundWater", player, plyTab.bWasInAir);
 					
 					plyTab.bWasInAir = nil;
+					plyTab.peakFallSpeed = nil;
 				end;
 			end;
 		
 			if (plyTab.bOnGround) then
 				plyTab.bWasInAir = player:GetPos().z;
+				plyTab.peakFallSpeed = math.max(0, fallSpeed);
 				plyTab.bOnGround = nil;
 			end;
 		end;
@@ -2019,19 +2035,27 @@ end;
 
 -- Called when a player hits water.
 function Schema:HitGroundWater(player, airZ)
+	local plyTab = player:GetTable();
+	if (player.cwNextFallDamage and player.cwNextFallDamage > CurTime()) then
+		plyTab.peakFallSpeed = nil;
+		return;
+	end;
+
 	local position = player:GetPos();
-	local difference = airZ - position.z
+	local difference = airZ - position.z;
+	local peakFallSpeed = math.max(plyTab.peakFallSpeed or 0, -player:GetVelocity().z);
 	
-	if (difference > 192) then
-		local world = GetWorldEntity();
+	if (difference > 192 and peakFallSpeed > 320) then
+		local world = game.GetWorld();
 		local damageInfo = DamageInfo();
 			damageInfo:SetDamageType(DMG_FALL);
-			damageInfo:SetDamage(35 * (difference / 512))
-			damageInfo:SetAttacker(world)
+			damageInfo:SetDamage(35 * (difference / 512));
+			damageInfo:SetAttacker(world);
 			damageInfo:SetInflictor(world);
 			damageInfo:SetDamagePosition(Vector(position.x, position.y, airZ));
 		player:TakeDamageInfo(damageInfo);
 	end;
+	plyTab.peakFallSpeed = nil;
 end;
 
 -- Called when an entity is removed.
@@ -3567,6 +3591,35 @@ function Schema:ActionStopped(player, action)
 		if player.itemUsing and IsValid(player.itemUsing) then
 			player.itemUsing.beingUsed = false;
 			player.itemUsing = nil;
+		end
+
+		local activeWeapon = player:GetActiveWeapon();
+		if IsValid(activeWeapon) then
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
+		end
+	elseif action == "performing_surgery" then
+		if IsValid(player.itemUsing) then
+			player.itemUsing.beingUsed = false;
+		end
+		player.itemUsing = nil;
+
+		-- Releases the surgery lock; surgeryStage is kept so progress resumes (upstream behaviour).
+		if cwMedicalSystem and cwMedicalSystem.CancelSurgery then
+			cwMedicalSystem:CancelSurgery(player);
+		end
+		if IsValid(player:GetActiveWeapon()) then
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
+		end
+	elseif action == "heal" or action == "healing" or action == "chloroform" then
+		if IsValid(player.itemUsing) then
+			player.itemUsing.beingUsed = false;
+		end
+		player.itemUsing = nil;
+		if IsValid(player:GetActiveWeapon()) then
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
 		end
 	end
 end;

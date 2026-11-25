@@ -126,6 +126,10 @@ local ITEM = Clockwork.item:New(nil, true)
 			return false
 		end
 		
+		if !player:Alive() then
+			return false;
+		end;
+
 		local clothesItem = player:GetClothesEquipped();
 		local helmetItem = player:GetHelmetEquipped();
 		
@@ -307,7 +311,10 @@ local ITEM = Clockwork.item:New(nil, true)
 			end
 			
 			if self.concealsFace == true then
-				player:SetNetVar("faceConcealed", false);
+				local clothesItem = player:GetClothesEquipped();
+				if (!clothesItem or !clothesItem.concealsFace) then
+					player:SetNetVar("faceConcealed", false);
+				end
 			end
 			
 			self:ResetBodygroup(player, self.bodyGroup);
@@ -331,7 +338,10 @@ local ITEM = Clockwork.item:New(nil, true)
 			end
 		
 			if self.concealsFace == true then
-				player:SetNetVar("faceConcealed", false);
+				local clothesItem = player:GetClothesEquipped();
+				if (!clothesItem or !clothesItem.concealsFace) then
+					player:SetNetVar("faceConcealed", false);
+				end
 			end
 			
 			self:ResetBodygroup(player, self.bodyGroup);

@@ -927,31 +927,62 @@ else
 	hook.Add("EntityRemoved", "EntityRemovedEquipment", function(entity, bFullUpdate)
 		if bFullUpdate then return end;
 		
+		local ragdoll = entity;
 		if Clockwork.entity:IsPlayerRagdoll(entity) then
-			entity = entity:GetNWEntity("Player");
+			local owner = entity:GetNWEntity("Player");
+			if IsValid(owner) then
+				entity = owner;
+			end;
 		end
 		
-		if entity:IsPlayer() then
-			if entity.equipmentSlotModels then
-				for itemID, equipmentModel in pairs(entity.equipmentSlotModels) do
+		local targets = {entity};
+		if ragdoll ~= entity then
+			targets[2] = ragdoll;
+		end;
+
+		for i = 1, #targets do
+			local target = targets[i];
+			if IsValid(target) and (target:IsPlayer() or (target.GetTable and target:GetTable().equipmentSlotModels)) then
+				local plyTab = target.GetTable and target:GetTable();
+				local models = plyTab and plyTab.equipmentSlotModels;
+				if models then
+					for itemID, equipmentModel in pairs(models) do
+						if IsValid(equipmentModel) then
+							equipmentModel:Remove();
+						end
+					end
+					
+					plyTab.equipmentSlotModels = nil;
+				end
+			end
+		end
+	end);
+
+	gameevent.Listen("player_disconnect");
+	hook.Add("player_disconnect", "PlayerDisconnectEquipment", function(data)
+		local ply = Player(data.userid);
+		if not (IsValid(ply) and ply:IsPlayer()) then
+			for _, p in _player.Iterator() do
+				if IsValid(p) and (p:UserID() == data.userid or (data.networkid and data.networkid ~= "" and data.networkid ~= "BOT" and p:SteamID() == data.networkid)) then
+					ply = p;
+					break;
+				end;
+			end;
+		end;
+
+		if IsValid(ply) then
+			local plyTab = ply.GetTable and ply:GetTable();
+			local models = plyTab and plyTab.equipmentSlotModels;
+			if models then
+				for itemID, equipmentModel in pairs(models) do
 					if IsValid(equipmentModel) then
 						equipmentModel:Remove();
 					end
 				end
 				
-				entity.equipmentSlotModels = nil;
+				plyTab.equipmentSlotModels = nil;
 			end
-		end
-	
-		--[[if Clockwork.entity:IsPlayerRagdoll(entity) then
-			ClearPlayerEquipmentModels(entity:GetNWEntity("Player"), entity);
-			
-			return;
-		end
-	
-		if entity:IsPlayer() then
-			ClearPlayerEquipmentModels(entity, entity:GetRagdollEntity());
-		end]]--
+		end;
 	end);
 	
 	--[[hook.Add("EquipmentUpdated", "EquipmentUpdatedEquipment", function(player)

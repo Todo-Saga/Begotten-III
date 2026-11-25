@@ -1370,16 +1370,139 @@ if (SERVER) then
 		@details A function to send an item update to it's observers.
 		@returns Table The table of observers.
 	--]]
+	local function HasItemInstanceRecursive(inventory, targetItem, visited, depth)
+		if not (istable(inventory) and targetItem) then return false end
+		if Clockwork.inventory:HasItemInstance(inventory, targetItem) then return true end
+		depth = depth or 0
+		if depth >= 16 then return false end
+		visited = visited or {}
+		if visited[inventory] then return false end
+		visited[inventory] = true
+
+		for _, items in pairs(inventory) do
+			if istable(items) then
+				for _, it in pairs(items) do
+					if istable(it) and istable(it.inventory) and HasItemInstanceRecursive(it.inventory, targetItem, visited, depth + 1) then
+						return true
+					end
+				end
+			end
+		end
+		return false
+	end
+
 	function item.SendUpdate(itemTable, data)
 		if (itemTable) then
 			local itemID = itemTable("itemID");
+			local itemEntity = (item.entities and item.entities[itemID]) or (item.FindEntityByInstance and item.FindEntityByInstance(itemTable));
+			local recipients;
 
-			netstream.Start(nil, "InvNetwork", {
-				itemID = itemID,
-				data = data
-			});
+			if IsValid(itemEntity) then
+				netstream.Start(nil, "InvNetwork", {
+					itemID = itemID,
+					data = data
+				});
+				return;
+			else
+				local recMap = {};
+				local ownerInv = nil;
+				local foundOwner = false;
+				local fallbackPlayers;
+				local storagePlayers;
+				local bEquipped = false;
+
+				for _, v in _player.Iterator() do
+					if v:HasInitialized() then
+						if v.cwStorageTab and v.cwStorageTab.inventory then
+							storagePlayers = storagePlayers or {};
+							storagePlayers[#storagePlayers + 1] = v;
+						end;
+
+						if not foundOwner then
+							local inv = v:GetInventory();
+							local hasItem = (inv and Clockwork.inventory:HasItemInstance(inv, itemTable));
+							-- Equipped items also stay in the owner's inventory, so check slots regardless of the inventory match.
+							if v.equipmentSlots then
+								for _, eqItem in pairs(v.equipmentSlots) do
+									if eqItem == itemTable or (istable(eqItem) and eqItem.itemID and eqItem.itemID == itemID) then
+										hasItem = true;
+										bEquipped = true;
+										break;
+									end;
+								end;
+							end;
+
+							if hasItem then
+								recMap[v] = true;
+								ownerInv = inv;
+								foundOwner = true;
+							else
+								fallbackPlayers = fallbackPlayers or {};
+								fallbackPlayers[#fallbackPlayers + 1] = v;
+							end;
+						end;
+					end;
+				end;
+
+				-- Equipped items are networked to every client (see Clockwork.equipment), so their data updates must be too.
+				if bEquipped then
+					netstream.Start(nil, "InvNetwork", {
+						itemID = itemID,
+						data = data
+					});
+					return;
+				end;
+
+				-- Fallback to recursive nested-inventory search only if owner was not found top-level
+				if not foundOwner and fallbackPlayers then
+					for _, v in ipairs(fallbackPlayers) do
+						local inv = v:GetInventory();
+						local hasItem = (inv and HasItemInstanceRecursive(inv, itemTable));
+						if not hasItem and v.equipmentSlots then
+							for _, eqItem in pairs(v.equipmentSlots) do
+								if istable(eqItem) and eqItem.inventory and HasItemInstanceRecursive(eqItem.inventory, itemTable) then
+									hasItem = true;
+									break;
+								end;
+							end;
+						end;
+
+						if hasItem then
+							recMap[v] = true;
+							ownerInv = inv;
+							foundOwner = true;
+							break;
+						end;
+					end;
+				end;
+
+				if storagePlayers then
+					for _, v in ipairs(storagePlayers) do
+						local st = v.cwStorageTab;
+						if st and st.inventory then
+							if (ownerInv and st.inventory == ownerInv) or HasItemInstanceRecursive(st.inventory, itemTable) then
+								recMap[v] = true;
+							end;
+						end;
+					end;
+				end;
+
+				if next(recMap) then
+					recipients = {};
+					for ply, _ in pairs(recMap) do
+						recipients[#recipients + 1] = ply;
+					end;
+				end;
+			end
+
+			if recipients and #recipients > 0 then
+				netstream.Start(recipients, "InvNetwork", {
+					itemID = itemID,
+					data = data
+				});
+			end
 		end;
-	end;	
+	end;
 else
 	function item.GetIconInfo(itemTable)
 		local model = itemTable("iconModel", itemTable("model"));

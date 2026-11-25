@@ -70,7 +70,10 @@ local ITEM = item.New(nil, true);
 			if bIsWearing then
 				player:SetNetVar("faceConcealed", true);
 			else
-				player:SetNetVar("faceConcealed", false);
+				local helmetItem = player:GetHelmetEquipped();
+				if (!helmetItem or !helmetItem.concealsFace) then
+					player:SetNetVar("faceConcealed", false);
+				end
 			end
 		end
 		
@@ -155,7 +158,10 @@ local ITEM = item.New(nil, true);
 				end
 				
 				if self.concealsFace == true then
-					player:SetNetVar("faceConcealed", false);
+					local helmetItem = player:GetHelmetEquipped();
+					if (!helmetItem or !helmetItem.concealsFace) then
+						player:SetNetVar("faceConcealed", false);
+					end
 				end
 				
 				if extraData == "drop" then
@@ -245,7 +251,10 @@ local ITEM = item.New(nil, true);
 			end
 		
 			if self.concealsFace == true then
-				player:SetNetVar("faceConcealed", false);
+				local helmetItem = player:GetHelmetEquipped();
+				if (!helmetItem or !helmetItem.concealsFace) then
+					player:SetNetVar("faceConcealed", false);
+				end
 			end
 		end
 	end
@@ -269,6 +278,10 @@ local ITEM = item.New(nil, true);
 			
 			return false
 		end
+		
+		if !player:Alive() then
+			return false;
+		end;
 	
 		local action = Clockwork.player:GetAction(player);
 		local faction = player:GetFaction();

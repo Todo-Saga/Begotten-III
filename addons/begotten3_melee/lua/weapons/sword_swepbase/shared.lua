@@ -24,6 +24,26 @@ SWEP.IronSights = true
 SWEP.ParryType = "parry_swing"
 SWEP.ParryAnim = ACT_VM_HITCENTER
 
+local meleeTraceRes = {}
+local meleeTraceData = { mask = MASK_SOLID, output = meleeTraceRes }
+local meleeMissTraceData = { mask = MASK_SHOT_HULL, output = meleeTraceRes }
+local meleeAimVec = Vector()
+local meleeRotAng = Angle()
+local meleeEndVec = Vector()
+local hitscanSpreadVec = Vector(0, 0, 0)
+local function hitscanBulletCallback(attacker, tr, dmginfo)
+	dmginfo:SetDamageType(DMG_CRUSH)
+end
+local hitscanBullet = {
+	Num = 1,
+	Spread = hitscanSpreadVec,
+	Tracer = 0,
+	Force = 2,
+	Hullsize = 0,
+	Damage = 0,
+	Callback = hitscanBulletCallback
+}
+
 function SWEP:AttackAnimination()
 	self.Weapon:SendWeaponAnim( ACT_VM_MISSCENTER )
 end
@@ -210,6 +230,11 @@ function SWEP:Deploy()
 	self.Primary.Cone = self.DefaultCone
 	--self.Weapon:SetNWInt("Reloading", CurTime() + self:SequenceDuration() )
 	self.isAttacking = false;
+	if SERVER then
+		self._cwLastSentItemID = nil;
+		self._cwSyncCount = 0;
+		self.nextItemSend = 0;
+	end
 	
 	if self:GetClass() == "begotten_fists" or (!self.Owner.cwWakingUp and !self.Owner.LoadingText) then
 		if self:GetNW2String("activeShield"):len() <= 0 then
@@ -250,51 +275,60 @@ function SWEP:Hitscan()
 		meleerange = attacktable["meleerange"] or 1;
 	end
 	
-	local tr = util.TraceLine( {
-		start = self.Owner:GetShootPos(),
-		endpos = self.Owner:GetShootPos() + ( self.Owner:GetAimVector() * (meleerange) / 10),
-		filter = self.Owner,
-		mask = MASK_SHOT_HULL
-	} )
-	
-	if ( tr.Hit ) and !tr.Entity:IsPlayer() and !tr.Entity:IsNPC() then
-		local bullet = {};
+	local owner = self.Owner
+	if !IsValid(owner) then return false end
+	local shootPos = owner:GetShootPos()
+	local aimVec = owner:GetAimVector()
+	local rangeDist = meleerange / 10
+
+	meleeEndVec:Set(aimVec)
+	meleeEndVec:Mul(rangeDist)
+	meleeEndVec:Add(shootPos)
+	meleeMissTraceData.start = shootPos
+	meleeMissTraceData.endpos = meleeEndVec
+	meleeMissTraceData.filter = owner
+	util.TraceLine(meleeMissTraceData)
+	meleeMissTraceData.filter = nil
+	local tr = meleeTraceRes
+	local trHit = tr.Hit
+	local trHitWorld = tr.HitWorld
+	local trEnt = tr.Entity
+	local trHitPos = tr.HitPos
+	local isRagdoll = IsValid(trEnt) and string.find(trEnt:GetClass(), "prop_ragdoll") ~= nil
+
+	if ( trHit ) and (trHitWorld or (IsValid(trEnt) and !trEnt:IsPlayer() and !trEnt:IsNPC())) then
+		hitscanSpreadVec:Zero()
+		hitscanBullet.Num      = 1
+		hitscanBullet.Src      = shootPos
+		hitscanBullet.Dir      = aimVec
+		hitscanBullet.Spread   = hitscanSpreadVec
+		hitscanBullet.Tracer   = 0
+		hitscanBullet.Force    = 2
+		hitscanBullet.Hullsize = 0
+		hitscanBullet.Damage   = 0
+		hitscanBullet.Distance = rangeDist
+		hitscanBullet.Callback = hitscanBulletCallback
 		
-		bullet.Num    = 1
-		bullet.Src    = self.Owner:GetShootPos()
-		bullet.Dir    = self.Owner:GetAimVector()
-		bullet.Spread = Vector(0, 0, 0)
-		bullet.Tracer = 0
-		bullet.Force  = 2
-		bullet.Hullsize = 0
-		bullet.Distance = (meleerange / 10)
-		bullet.Damage = 0;
-	
-		bullet.Callback = function(attacker, tr, dmginfo)
-			dmginfo:SetDamageType(DMG_CRUSH)
-		end
+		owner:FireBullets(hitscanBullet, 2);
 		
-		self.Owner:FireBullets(bullet, 2);
-		
-		if string.find(tr.Entity:GetClass(), "prop_ragdoll") then
-			local data = self.Owner:GetEyeTrace();
+		if isRagdoll and IsValid(trEnt) then
 			local effect = EffectData();
-				effect:SetOrigin(data.HitPos);
+				effect:SetOrigin(owner:GetEyeTrace().HitPos);
 				effect:SetScale(16);
 			util.Effect("BloodImpact", effect, true, true);
 			
-			--if not Clockwork.entity:GetPlayer(tr.Entity) or not Clockwork.entity:GetPlayer(tr.Entity):Alive() then
+			--if not Clockwork.entity:GetPlayer(trEnt) or not Clockwork.entity:GetPlayer(trEnt):Alive() then
 				if self.Owner:GetNetVar("ThrustStance") != true or (self.ChoppingAltAttack or self.PummelingAltAttack) then
-					tr.Entity:EmitSound(attacksoundtable["hitbody"][math.random(1, #attacksoundtable["hitbody"])])
+					trEnt:EmitSound(attacksoundtable["hitbody"][math.random(1, #attacksoundtable["hitbody"])])
 				else
-					tr.Entity:EmitSound(attacksoundtable["althitbody"][math.random(1, #attacksoundtable["althitbody"])])
+					trEnt:EmitSound(attacksoundtable["althitbody"][math.random(1, #attacksoundtable["althitbody"])])
 				end
 			--end
 			
-			if ( SERVER && IsValid( tr.Entity ) ) then
-				local phys = tr.Entity:GetPhysicsObject()
+			if ( SERVER && IsValid( trEnt ) ) then
+				local phys = trEnt:GetPhysicsObject()
 				if ( IsValid( phys ) ) then
-					phys:ApplyForceOffset( self.Owner:GetAimVector() * 135 * phys:GetMass(), tr.HitPos )
+					phys:ApplyForceOffset( self.Owner:GetAimVector() * 135 * phys:GetMass(), trHitPos )
 				end
 			end	
 		else
@@ -317,7 +351,7 @@ function SWEP:LastStandCheck(player, curTime)
 	self.nextLastStandCheck = curTime + 0.2
 
 	if(!Clockwork.player:HasFlags(player, "l") and player:Health() > player:GetMaxHealth() * 0.6) then
-		if(self:GetNWBool("lastStandActive") or self:SetNWBool("fireSword") or self:SetNWBool("iceSword")) then
+		if(self:GetNWBool("lastStandActive") or self:GetNWBool("fireSword") or self:GetNWBool("iceSword")) then
 			self:SetNWBool("lastStandActive", false)
 			self:SetNWBool("fireSword", false)
 			self:SetNWBool("iceSword", false)
@@ -368,6 +402,7 @@ end
 
 function SWEP:Think()
 	local player = self.Owner;
+	if (!IsValid(player)) then return end;
 	local plyTab = player:GetTable();
 	
 	if (plyTab.beginBlockTransition) then
@@ -407,29 +442,12 @@ function SWEP:Think()
 		plyTab.beginBlockTransition = false;
 	end;
 	
+	local curTime = CurTime();
+
 	if SERVER then
-		local curTime = CurTime();
-		
 		-- Last ditch effort to fix the clientside itemtable desync.
 		if !self.nextItemSend or self.nextItemSend <= curTime then
-			if IsValid(player) and player:IsPlayer() then
-				local itemTable = item.GetByWeapon(self);
-					
-				if itemTable then
-					netstream.Start(player, "WeaponItemData", {
-						definition = item.GetDefinition(itemTable, true),
-						weapon = self:EntIndex()
-					})
-
-					if self:GetNWInt("ItemID") ~= itemTable.itemID then
-						self:SetNWInt("ItemID", itemTable.itemID)
-					end
-					
-					self.cwItemTable = itemTable
-				end
-			end
-			
-			self.nextItemSend = curTime + math.random(1, 5);
+			self.nextItemSend = curTime + (item.SyncWeaponEntity(self, player) or 5);
 		end
 
 		self:LastStandCheck(player, curTime)
@@ -443,7 +461,7 @@ function SWEP:Think()
 	end
 	
 	for k, v in next, self.Timers do
-		if v.start + v.duration <= CurTime() then
+		if v.start + v.duration <= curTime then
 			v.callback()
 			self.Timers[k] = nil
 		end
@@ -795,14 +813,15 @@ function SWEP:PrimaryAttack()
 					if owner:IsPlayer() and (!owner.IsRagdolled or !owner:IsRagdolled()) and owner:Alive() then
 						if !owner:GetNetVar("ParrySuccess", false) and !owner:GetNetVar("Guardening", false) then
 							self:Hitscan(); -- For bullet holes.
-							owner:LagCompensation(true);
+							if not owner:IsBot() then owner:LagCompensation(true); end
 						
 							local pos = owner:GetShootPos();
 							local aimVector = owner:GetAimVector();
 							local meleeArc = attacktable["meleearc"] or 25;
 							local meleeRange = (attacktable["meleerange"] or 1) / 10;
 							local hitsAllowed = self.MultiHit or 1;
-							local hitEntities = {};
+							local hitCount = 0;
+							local hitSet = {};
 							
 							if !bParry and (stance == "thrust_swing" or thrustOverride) then
 								meleeArc = attacktable["altmeleearc"] or attacktable["meleearc"] or 25;
@@ -816,82 +835,93 @@ function SWEP:PrimaryAttack()
 								end
 							end
 
-							local tr = util.TraceLine({
-								start = pos,
-								endpos = pos + (aimVector * meleeRange),
-								mask = MASK_SOLID,
-								filter = owner
-							})
+							meleeEndVec:Set(aimVector);
+							meleeEndVec:Mul(meleeRange);
+							meleeEndVec:Add(pos);
+							meleeTraceData.start = pos;
+							meleeTraceData.endpos = meleeEndVec;
+							meleeTraceData.filter = owner;
+							util.TraceLine(meleeTraceData);
+							local firstHit = meleeTraceRes.Hit;
 							
-							if tr.Hit then
-								if IsValid(tr.Entity) then
-									local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(tr.Entity);
+							if firstHit then
+								local rawEnt = meleeTraceRes.Entity;
+								local hitPos = meleeTraceRes.HitPos;
+								if IsValid(rawEnt) then
+									local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(rawEnt);
 								
-									if tr.Entity:IsPlayer() or tr.Entity:IsNPC() or tr.Entity:IsNextBot() or bIsPlayerRagdoll then
-										table.insert(hitEntities, tr.Entity);
+									if rawEnt:IsPlayer() or rawEnt:IsNPC() or rawEnt:IsNextBot() or bIsPlayerRagdoll then
+										hitCount = hitCount + 1;
+										hitSet[rawEnt] = true;
 									else
 										hitsAllowed = 0;
 									end
 									
-									local hitEnt = tr.Entity;
+									local hitEnt = rawEnt;
 									
 									if bIsPlayerRagdoll then
-										hitEnt = Clockwork.entity:GetPlayer(tr.Entity);
+										hitEnt = Clockwork.entity:GetPlayer(rawEnt);
 									end
 										
-									if bParry and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
-										self:HandleHit(tr.Entity, tr.HitPos, "parry_swing");
+									if bParry and IsValid(hitEnt) and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
+										self:HandleHit(rawEnt, hitPos, "parry_swing");
 									else
-										self:HandleHit(tr.Entity, tr.HitPos, stance);
+										self:HandleHit(rawEnt, hitPos, stance);
 									end
 									
 									hitSomething = true;
 								end
 							end
 								
-							if !tr.Hit or #hitEntities < hitsAllowed then
+							if !firstHit or hitCount < hitsAllowed then
 								for i = 1, meleeArc - 1 do
-									local newAimVector = Vector(aimVector);
+									meleeAimVec:Set(aimVector);
+									meleeRotAng.p = 0;
+									meleeRotAng.r = 0;
 								
 									if (i % 2 == 0) then
 										-- If even go left.
-										newAimVector:Rotate(Angle(0, math.Round(i / 2), 0));
+										meleeRotAng.y = math.Round(i / 2);
 									else
 										-- If odd go right.
-										newAimVector:Rotate(Angle(0, -math.Round(i / 2), 0));
+										meleeRotAng.y = -math.Round(i / 2);
 									end
-
-									local tr2 = util.TraceLine({
-										start = pos,
-										endpos = pos + (newAimVector * meleeRange),
-										mask = MASK_SOLID,
-										filter = owner
-									})
+									meleeAimVec:Rotate(meleeRotAng);
+									meleeEndVec:Set(meleeAimVec);
+									meleeEndVec:Mul(meleeRange);
+									meleeEndVec:Add(pos);
+									meleeTraceData.start = pos;
+									meleeTraceData.filter = owner;
+									meleeTraceData.endpos = meleeEndVec;
+									util.TraceLine(meleeTraceData);
 									
-									if tr2.Hit then
-										if IsValid(tr2.Entity) and !table.HasValue(hitEntities, tr2.Entity) then
-											local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(tr2.Entity);
+									if meleeTraceRes.Hit then
+										local rawEnt = meleeTraceRes.Entity;
+										local hitPos = meleeTraceRes.HitPos;
+										if IsValid(rawEnt) and !hitSet[rawEnt] then
+											local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(rawEnt);
 										
-											if tr2.Entity:IsPlayer() or tr2.Entity:IsNPC() or tr2.Entity:IsNextBot() or bIsPlayerRagdoll then
-												table.insert(hitEntities, tr2.Entity);
+											if rawEnt:IsPlayer() or rawEnt:IsNPC() or rawEnt:IsNextBot() or bIsPlayerRagdoll then
+												hitCount = hitCount + 1;
+												hitSet[rawEnt] = true;
 												
-												local hitEnt = tr2.Entity;
+												local hitEnt = rawEnt;
 												
 												if bIsPlayerRagdoll then
-													hitEnt = Clockwork.entity:GetPlayer(tr2.Entity);
+													hitEnt = Clockwork.entity:GetPlayer(rawEnt);
 												end
 												
-												if bParry and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
-													self:HandleHit(tr2.Entity, tr2.HitPos, "parry_swing", #hitEntities);
+												if bParry and IsValid(hitEnt) and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
+													self:HandleHit(rawEnt, hitPos, "parry_swing", hitCount);
 												else
-													self:HandleHit(tr2.Entity, tr2.HitPos, stance, #hitEntities);
+													self:HandleHit(rawEnt, hitPos, stance, hitCount);
 												end
 												
 												hitSomething = true;
 											end
 										end
 									
-										if #hitEntities >= hitsAllowed then
+										if hitCount >= hitsAllowed then
 											break;
 										end
 									end
@@ -903,7 +933,8 @@ function SWEP:PrimaryAttack()
 									meleeArc = offhandAttackTable["meleearc"] or 25;
 									meleeRange = (offhandAttackTable["meleerange"] or 1) / 10;
 									hitsAllowed = offhandWeapon.MultiHit or 1;
-									table.Empty(hitEntities);
+									hitCount = 0;
+									table.Empty(hitSet);
 									
 									if stance == "thrust_swing" or thrustOverride then
 										meleeArc = offhandAttackTable["altmeleearc"] or offhandAttackTable["meleearc"] or 25;
@@ -915,82 +946,93 @@ function SWEP:PrimaryAttack()
 										end
 									end
 
-									local tr = util.TraceLine({
-										start = pos,
-										endpos = pos + (aimVector * meleeRange),
-										mask = MASK_SOLID,
-										filter = owner
-									})
+									meleeEndVec:Set(aimVector);
+									meleeEndVec:Mul(meleeRange);
+									meleeEndVec:Add(pos);
+									meleeTraceData.start = pos;
+									meleeTraceData.endpos = meleeEndVec;
+									meleeTraceData.filter = owner;
+									util.TraceLine(meleeTraceData);
+									local offFirstHit = meleeTraceRes.Hit;
 									
-									if tr.Hit then
-										if IsValid(tr.Entity) then
-											local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(tr.Entity);
+									if offFirstHit then
+										local rawEnt = meleeTraceRes.Entity;
+										local hitPos = meleeTraceRes.HitPos;
+										if IsValid(rawEnt) then
+											local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(rawEnt);
 										
-											if tr.Entity:IsPlayer() or tr.Entity:IsNPC() or tr.Entity:IsNextBot() or bIsPlayerRagdoll then
-												table.insert(hitEntities, tr.Entity);
+											if rawEnt:IsPlayer() or rawEnt:IsNPC() or rawEnt:IsNextBot() or bIsPlayerRagdoll then
+												hitCount = hitCount + 1;
+												hitSet[rawEnt] = true;
 											else
 												hitsAllowed = 0;
 											end
 
-											local hitEnt = tr.Entity;
+											local hitEnt = rawEnt;
 											
 											if bIsPlayerRagdoll then
-												hitEnt = Clockwork.entity:GetPlayer(tr.Entity);
+												hitEnt = Clockwork.entity:GetPlayer(rawEnt);
 											end
 											
-											if bParry and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
-												self:HandleHit(tr.Entity, tr.HitPos, "parry_swing", nil, offhandWeapon, offhandAttackTable);
+											if bParry and IsValid(hitEnt) and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
+												self:HandleHit(rawEnt, hitPos, "parry_swing", nil, offhandWeapon, offhandAttackTable);
 											else
-												self:HandleHit(tr.Entity, tr.HitPos, stance, nil, offhandWeapon, offhandAttackTable);
+												self:HandleHit(rawEnt, hitPos, stance, nil, offhandWeapon, offhandAttackTable);
 											end
 											
 											hitSomething = true;
 										end
 									end
 										
-									if !tr.Hit or #hitEntities < hitsAllowed then
+									if !offFirstHit or hitCount < hitsAllowed then
 										for i = 1, meleeArc - 1 do
-											local newAimVector = Vector(aimVector);
+											meleeAimVec:Set(aimVector);
+											meleeRotAng.p = 0;
+											meleeRotAng.r = 0;
 										
 											if (i % 2 == 0) then
 												-- If even go left.
-												newAimVector:Rotate(Angle(0, math.Round(i / 2), 0));
+												meleeRotAng.y = math.Round(i / 2);
 											else
 												-- If odd go right.
-												newAimVector:Rotate(Angle(0, -math.Round(i / 2), 0));
+												meleeRotAng.y = -math.Round(i / 2);
 											end
-
-											local tr2 = util.TraceLine({
-												start = pos,
-												endpos = pos + (newAimVector * meleeRange),
-												mask = MASK_SOLID,
-												filter = owner
-											})
+											meleeAimVec:Rotate(meleeRotAng);
+											meleeEndVec:Set(meleeAimVec);
+											meleeEndVec:Mul(meleeRange);
+											meleeEndVec:Add(pos);
+											meleeTraceData.start = pos;
+											meleeTraceData.filter = owner;
+											meleeTraceData.endpos = meleeEndVec;
+											util.TraceLine(meleeTraceData);
 											
-											if tr2.Hit then
-												if IsValid(tr2.Entity) and !table.HasValue(hitEntities, tr2.Entity) then
-													local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(tr2.Entity);
+											if meleeTraceRes.Hit then
+												local rawEnt = meleeTraceRes.Entity;
+												local hitPos = meleeTraceRes.HitPos;
+												if IsValid(rawEnt) and !hitSet[rawEnt] then
+													local bIsPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(rawEnt);
 													
-													if tr2.Entity:IsPlayer() or tr2.Entity:IsNPC() or tr2.Entity:IsNextBot() or bIsPlayerRagdoll then
-														table.insert(hitEntities, tr2.Entity);
+													if rawEnt:IsPlayer() or rawEnt:IsNPC() or rawEnt:IsNextBot() or bIsPlayerRagdoll then
+														hitCount = hitCount + 1;
+														hitSet[rawEnt] = true;
 														
-														local hitEnt = tr2.Entity;
+														local hitEnt = rawEnt;
 														
 														if bIsPlayerRagdoll then
-															hitEnt = Clockwork.entity:GetPlayer(tr2.Entity);
+															hitEnt = Clockwork.entity:GetPlayer(rawEnt);
 														end
 														
-														if bParry and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
-															self:HandleHit(tr2.Entity, tr2.HitPos, "parry_swing", #hitEntities, offhandWeapon, offhandAttackTable);
+														if bParry and IsValid(hitEnt) and hitEnt:GetNetVar("Parried") and hitEnt == owner.parryTarget then
+															self:HandleHit(rawEnt, hitPos, "parry_swing", hitCount, offhandWeapon, offhandAttackTable);
 														else
-															self:HandleHit(tr2.Entity, tr2.HitPos, stance, #hitEntities, offhandWeapon, offhandAttackTable);
+															self:HandleHit(rawEnt, hitPos, stance, hitCount, offhandWeapon, offhandAttackTable);
 														end
 														
 														hitSomething = true;
 													end
 												end
 											
-												if #hitEntities >= hitsAllowed then
+												if hitCount >= hitsAllowed then
 													break;
 												end
 											end
@@ -999,7 +1041,7 @@ function SWEP:PrimaryAttack()
 								end
 							end
 							
-							owner:LagCompensation(false);
+							if not owner:IsBot() then owner:LagCompensation(false); end
 						end
 						
 						if (owner:KeyDown(IN_ATTACK2)) then
@@ -1077,14 +1119,16 @@ function SWEP:PrimaryAttack()
 							meleerange = attacktable["meleerange"] or 1;
 						end
 					
-						local tr = util.TraceLine( {
-							start = self.Owner:GetShootPos(),
-							endpos = self.Owner:GetShootPos() + ( self.Owner:GetAimVector() * (meleerange) / 10),
-							filter = self.Owner,
-							mask = MASK_SHOT_HULL
-						} )
+						local missStart = self.Owner:GetShootPos()
+						meleeEndVec:Set(self.Owner:GetAimVector())
+						meleeEndVec:Mul(meleerange / 10)
+						meleeEndVec:Add(missStart)
+						meleeMissTraceData.start = missStart
+						meleeMissTraceData.endpos = meleeEndVec
+						meleeMissTraceData.filter = self.Owner
+						util.TraceLine(meleeMissTraceData)
 					
-						if !tr.Hit then
+						if !meleeTraceRes.Hit then
 							self:OnMiss();
 						end
 					end
@@ -2520,7 +2564,7 @@ function SWEP:SelectTargets( num )
 	} )]]
 
 	local p = {}
-	for id, ply in pairs( ents.GetAll() ) do
+	for id, ply in pairs( ents.FindInSphere( self.Owner:GetShootPos(), dist * 2 + 64 ) ) do
 		if ply:IsPlayer() or ply:IsNPC() or Clockwork.entity:IsPlayerRagdoll(ply) then
 			if ply == self.Owner or ply.cwObserverMode then
 				continue;
@@ -3440,6 +3484,7 @@ if CLIENT then
 			ang:RotateAroundAxis(ang:Right(), v.angle.p)
 			ang:RotateAroundAxis(ang:Forward(), v.angle.r)
 		else
+			if (!IsValid(ent)) then return end
 			bone = ent:LookupBone(bone_override or tab.bone)
 
 			if (!bone) then return end
@@ -3745,8 +3790,16 @@ end
 if CLIENT then
 	hook.Add("Think", "Blockthink", function()
 		for _, player in _player.Iterator() do
-			if player:IsValid() and player:Alive() then
+			if player:IsValid() and player:Alive() and not player:IsDormant() then
 				local plyTab = player:GetTable();
+				local begin = plyTab.gestureweightbegin or 0;
+				local prog = plyTab.gestureweightprogress or 0;
+				local block = plyTab.gestureweightblock or 0;
+
+				if begin <= 0 and prog <= 0 and block <= 0 and not player:GetNetVar("Guardening") and not player:GetNetVar("MelAttacking") and not player:GetNetVar("Parry") and not player:GetNetVar("Deflect") then
+					continue;
+				end;
+
 				local setWeight = false;
 			
 				if !plyTab.gestureweightbegin then

@@ -170,6 +170,11 @@ function SWEP:Equip()
 end
  
 function SWEP:Deploy()
+	if SERVER then
+		self._cwLastSentItemID = nil;
+		self._cwSyncCount = 0;
+		self.nextItemSend = 0;
+	end
 	--if CLIENT then
 		self:SetIronsights(false, self.Owner)
 	--end
@@ -925,24 +930,7 @@ function SWEP:Think()
 		
 		-- Last ditch effort to fix the clientside itemtable desync.
 		if !self.nextItemSend or self.nextItemSend <= curTime then
-			if IsValid(player) and player:IsPlayer() then
-				local itemTable = item.GetByWeapon(self);
-					
-				if itemTable then
-					netstream.Start(player, "WeaponItemData", {
-						definition = item.GetDefinition(itemTable, true),
-						weapon = self:EntIndex()
-					})
-
-					if self:GetNWInt("ItemID") ~= itemTable.itemID then
-						self:SetNWInt("ItemID", itemTable.itemID)
-					end
-					
-					self.cwItemTable = itemTable
-				end
-			end
-			
-			self.nextItemSend = curTime + math.random(1, 5);
+			self.nextItemSend = curTime + (item.SyncWeaponEntity(self, player) or 5);
 		end
 	--elseif CLIENT then
 		--self:IronSight();
@@ -1256,6 +1244,7 @@ if CLIENT then
 				ang:RotateAroundAxis(ang:Right(), v.angle.p)
 				ang:RotateAroundAxis(ang:Forward(), v.angle.r)
 			else
+				if (!IsValid(ent)) then return end
 				bone = ent:LookupBone(bone_override or tab.bone)
 
 				if (!bone) then return end

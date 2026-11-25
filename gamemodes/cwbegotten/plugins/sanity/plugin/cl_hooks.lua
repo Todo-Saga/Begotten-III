@@ -270,13 +270,23 @@ function cwSanity:Think()
 					if !self.nextSanitySound or self.nextSanitySound < curTime then
 						self.nextSanitySound = curTime + math.random(40, 60);
 					
-						Clockwork.Client:EmitSound(table.Random(lowSanitySounds), 60);
+						if (self.lastSanitySound) then
+							Clockwork.Client:StopSound(self.lastSanitySound);
+						end;
+						local soundToPlay = table.Random(lowSanitySounds);
+						self.lastSanitySound = soundToPlay;
+						Clockwork.Client:EmitSound(soundToPlay, 60);
 					end
 				else
 					if !self.nextSanitySound or self.nextSanitySound < curTime then
 						self.nextSanitySound = curTime + math.random(20, 60);
 					
-						Clockwork.Client:EmitSound(table.Random(medSanitySounds), 60, math.random(75, 100));
+						if (self.lastSanitySound) then
+							Clockwork.Client:StopSound(self.lastSanitySound);
+						end;
+						local soundToPlay = table.Random(medSanitySounds);
+						self.lastSanitySound = soundToPlay;
+						Clockwork.Client:EmitSound(soundToPlay, 60, math.random(75, 100));
 					end
 				end
 				
@@ -535,6 +545,10 @@ function cwSanity:Think()
 				end;
 			end;
 		else
+			if (self.lastSanitySound) then
+				Clockwork.Client:StopSound(self.lastSanitySound);
+				self.lastSanitySound = nil;
+			end;
 			if (#self.cockroaches > 0) then
 				for k, v in pairs(self.cockroaches) do
 					if (IsValid(v)) then
@@ -551,8 +565,23 @@ function cwSanity:Think()
 				end;
 			end;
 		end;
+	elseif (self.lastSanitySound and IsValid(Clockwork.Client)) then
+		Clockwork.Client:StopSound(self.lastSanitySound);
+		self.lastSanitySound = nil;
 	end
 end
+
+local sanityModify = {
+	["$pp_colour_brightness"] = 0,
+	["$pp_colour_contrast"] = 1,
+	["$pp_colour_colour"] = 1,
+	["$pp_colour_addr"] = 0,
+	["$pp_colour_addg"] = 0,
+	["$pp_colour_addb"] = 0,
+	["$pp_colour_mulr"] = 0,
+	["$pp_colour_mulg"] = 0,
+	["$pp_colour_mulb"] = 0
+};
 
 -- Called when the screenspace effects are rendered.
 function cwSanity:RenderScreenspaceEffects()
@@ -662,21 +691,35 @@ function cwSanity:RenderScreenspaceEffects()
 			end;
 		end;
 		
-		if (sanity <= 50) then
+		local sanityModifyActive = false;
+
+		if (sanity <= 50 and Clockwork.Client:Alive()) then
 			if !Clockwork.Client:GetNetVar("senses") then
 				if (!self.contrastAdd) then
 					self.contrastAdd = 0;
 				end;
 
-				local sanityModify = {};
-					sanityModify["$pp_colour_brightness"] = 0 + (self.contrastAdd * 0.1);
-					sanityModify["$pp_colour_contrast"] = 1 + self.contrastAdd;
-					sanityModify["$pp_colour_addg"] = (0 - self.contrastAdd);
-					sanityModify["$pp_colour_addb"] = (0 - self.contrastAdd);
-				DrawColorModify(sanityModify);
-				
-				self.contrastAdd = math.Approach(self.contrastAdd, math.Remap(sanity, 0, 50, 0.1, 0), frameTime * 0.25);
+				local targetContrast = math.Clamp(math.Remap(sanity, 0, 50, 0.1, 0), 0, 0.1);
+				self.contrastAdd = math.Approach(self.contrastAdd, targetContrast, frameTime * 0.25);
+				sanityModifyActive = true;
 			end
+		else
+			if not Clockwork.Client:Alive() then
+				self.contrastAdd = 0;
+			elseif self.contrastAdd and self.contrastAdd > 0 then
+				self.contrastAdd = math.Approach(self.contrastAdd, 0, frameTime * 0.25);
+				if self.contrastAdd > 0 then
+					sanityModifyActive = true;
+				end;
+			end;
+		end;
+
+		if sanityModifyActive then
+			sanityModify["$pp_colour_brightness"] = math.Clamp(0 + (self.contrastAdd * 0.1), -1, 1);
+			sanityModify["$pp_colour_contrast"] = math.Clamp(1 + self.contrastAdd, 0, 2);
+			sanityModify["$pp_colour_addg"] = math.Clamp(0 - self.contrastAdd, -1, 1);
+			sanityModify["$pp_colour_addb"] = math.Clamp(0 - self.contrastAdd, -1, 1);
+			DrawColorModify(sanityModify);
 		end;
 	end;
 end;

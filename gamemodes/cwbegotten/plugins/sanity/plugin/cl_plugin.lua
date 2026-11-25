@@ -286,8 +286,8 @@ hook.Add("RenderScreenspaceEffects", "efra", function()
 			[ "$pp_colour_addr" ] = 0.1,
 			[ "$pp_colour_addg" ] = 0,
 			[ "$pp_colour_addb" ] = -0.5,
-			[ "$pp_colour_brightness" ] = 0 - rands / 128,
-			[ "$pp_colour_contrast" ] = 1 - rands * 0.05,
+			[ "$pp_colour_brightness" ] = math.Clamp(0 - rands / 128, -1, 1),
+			[ "$pp_colour_contrast" ] = math.Clamp(1 - rands * 0.05, 0.2, 2),
 			[ "$pp_colour_colour" ] = 1.5,
 			[ "$pp_colour_mulr" ] = 0 * rands,
 			[ "$pp_colour_mulg" ] = -0.2,
@@ -295,7 +295,7 @@ hook.Add("RenderScreenspaceEffects", "efra", function()
 		}
 		
 		DrawColorModify(tab)
-		DrawMaterialOverlay("begotten/effects/blackblur", rands )
+		DrawMaterialOverlay("begotten/effects/blackblur", math.Clamp(rands * 0.05, 0, 0.5))
 	else
 		if (LocalPlayer().HeadAchesA and #LocalPlayer().HeadAchesA > 0) then
 			for k, v in pairs (LocalPlayer().HeadAchesA) do
@@ -329,7 +329,7 @@ end;
 function cwSanity:DoorHitScare(entity)
 	local soundPlayed = nil;
 	
-	if (!entity:GetClass() == "prop_door_rotating") then
+	if (!IsValid(entity) or entity:GetClass() ~= "prop_door_rotating") then
 		return;
 	end;
 	

@@ -87,6 +87,121 @@ function cwGore:Think()
 	end
 end
 
+cwGore.ClientGibs = cwGore.ClientGibs or {};
+cwGore.ClientGibIndex = cwGore.ClientGibIndex or 0;
+
+local defaultGibModels = {
+	"models/props_junk/watermelon01_chunk02a.mdl",
+	"models/props_junk/watermelon01_chunk02b.mdl",
+	"models/props_junk/watermelon01_chunk02c.mdl",
+	"models/gibs/antlion_gib_medium_1.mdl",
+	"models/gibs/antlion_gib_small_1.mdl",
+	"models/gibs/antlion_gib_small_2.mdl"
+};
+
+local function EmitClientGibBlood(pos)
+	local effect = EffectData();
+		effect:SetOrigin(pos);
+		effect:SetScale(8);
+	util.Effect("BloodImpact", effect, true, true);
+	util.Decal("Blood", pos + Vector(0, 0, 8), pos - Vector(0, 0, 32));
+end;
+
+net.Receive("cwCreateClientGibs", function()
+	local pos = net.ReadVector();
+	local count = net.ReadUInt(5);
+	local modelCount = net.ReadUInt(4);
+	local models;
+	if (modelCount > 0) then
+		models = {};
+		for i = 1, modelCount do
+			models[i] = net.ReadString();
+		end;
+	else
+		models = defaultGibModels;
+	end;
+	local fadeDelay = net.ReadUInt(9);
+	local dmgForce = net.ReadVector();
+	local bExplode = net.ReadBool();
+	local bOnFire = net.ReadBool();
+
+	for i = 1, count do
+		local model = models[math.random(1, #models)];
+		local isSkull = (model == "models/gibs/hgibs.mdl");
+		local gib = ents.CreateClientProp(model);
+
+		if (IsValid(gib)) then
+			if (isSkull or count == 1) then
+				gib:SetPos(pos);
+			else
+				gib:SetPos(pos + Vector(math.random(-10, 10), math.random(-10, 10), math.random(0, 15)));
+			end;
+			gib:SetAngles(AngleRand());
+			gib:Spawn();
+			
+			if (!isSkull) then
+				gib:SetMaterial("models/flesh");
+			else
+				EmitClientGibBlood(gib:GetPos());
+				if (bOnFire) then
+					ParticleEffectAttach("fire_small_01", PATTACH_ABSORIGIN_FOLLOW, gib, 0);
+				end;
+			end;
+			
+			gib:SetCollisionGroup(COLLISION_GROUP_DEBRIS);
+
+			local phys = gib:GetPhysicsObject();
+			if (IsValid(phys)) then
+				phys:Wake();
+				if (dmgForce and dmgForce:LengthSqr() > 100) then
+					phys:ApplyForceCenter(dmgForce);
+					phys:AddAngleVelocity(VectorRand() * 300);
+				elseif (bExplode) then
+					phys:SetVelocity(Vector(
+						math.random(-180, 180),
+						math.random(-180, 180),
+						math.random(200, 450)
+					));
+					phys:AddAngleVelocity(VectorRand() * 500);
+				end;
+			end;
+
+			-- Ring buffer management (max 64 active gibs)
+			cwGore.ClientGibIndex = (cwGore.ClientGibIndex % 64) + 1;
+			local oldGib = cwGore.ClientGibs[cwGore.ClientGibIndex];
+			if (IsValid(oldGib)) then
+				oldGib:Remove();
+			end;
+			cwGore.ClientGibs[cwGore.ClientGibIndex] = gib;
+
+			timer.Simple(2, function()
+				if (IsValid(gib)) then
+					EmitClientGibBlood(gib:GetPos());
+				end;
+			end);
+
+			timer.Simple(fadeDelay, function()
+				if (IsValid(gib)) then
+					gib:Remove();
+				end;
+			end);
+		end;
+	end;
+end);
+
+net.Receive("cwClearClientGibs", function()
+	if (cwGore.ClientGibs) then
+		for i = 1, 64 do
+			local gib = cwGore.ClientGibs[i];
+			if (IsValid(gib)) then
+				gib:Remove();
+			end;
+		end;
+		cwGore.ClientGibs = {};
+		cwGore.ClientGibIndex = 0;
+	end;
+end);
+
 --[[
 
 	plugin.Remove("LIMBS")

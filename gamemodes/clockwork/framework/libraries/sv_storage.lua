@@ -312,6 +312,14 @@ function Clockwork.storage:GiveTo(player, itemTable, bMultiple)
 	local storageTable = player:GetStorageTable()
 	if (!storageTable) then return false end
 
+	local curTime = CurTime();
+	if not bMultiple and player.cwLastStorageAction and player.cwLastStorageAction > curTime then
+		return false;
+	end;
+	if not bMultiple then
+		player.cwLastStorageAction = curTime + 0.05;
+	end;
+
 	local inventory = self:Query(player, "inventory")
 	if (!self:CanGiveTo(player, itemTable)) then
 		return false
@@ -337,14 +345,34 @@ function Clockwork.storage:GiveTo(player, itemTable, bMultiple)
 	bCanGiveStorage = !storageTable.CanGiveItem or storageTable.CanGiveItem(player, storageTable, itemTable)
 	if (bCanGiveStorage == false) then return false end
 
-	if (storageTable.entity and storageTable.entity:IsPlayer() and !storageTable.entity:GiveItem(itemTable)) then
-		return false
-	end
-
-	hook.Run("PlayerGiveToStorage", player, storageTable, itemTable)
-	Clockwork.inventory:AddInstance(inventory, itemTable)
+	local bIsPlayerTarget = storageTable.entity and storageTable.entity:IsPlayer();
+	if storageTable.entity ~= nil and not IsValid(storageTable.entity) then
+		self:Close(player, true);
+		return false;
+	end;
 
 	if !bMultiple then
+		if (bIsPlayerTarget and (not storageTable.entity:CanHoldWeight(itemTable.weight) or not storageTable.entity:CanHoldSpace(itemTable.space))) then
+			return false;
+		end;
+
+		if not player:HasItemInstance(itemTable) or not player:TakeItem(itemTable) then
+			return false;
+		end;
+
+		if (bIsPlayerTarget) then
+			if (!storageTable.entity:GiveItem(itemTable)) then
+				player:GiveItem(itemTable, true);
+				return false;
+			end;
+			storageTable.entity._cwNextInvFullCheck = 0;
+		else
+			Clockwork.inventory:AddInstance(inventory, itemTable);
+		end;
+		player._cwNextInvFullCheck = 0;
+
+		hook.Run("PlayerGiveToStorage", player, storageTable, itemTable)
+
 		local definition = item.GetDefinition(itemTable, true)
 			definition.index = nil
 		local players = {}
@@ -358,8 +386,6 @@ function Clockwork.storage:GiveTo(player, itemTable, bMultiple)
 		netstream.Start(
 			players, "StorageGive", { index = itemTable.index, itemList = {definition}}
 		)
-
-		player:TakeItem(itemTable)
 
 		if (storageTable.OnGiveItem and storageTable.OnGiveItem(player, storageTable, itemTable)) then
 			self:Close(player)
@@ -375,6 +401,18 @@ function Clockwork.storage:GiveTo(player, itemTable, bMultiple)
 		end
 
 		hook.Run("PostPlayerGiveToStorage", player, storageTable, itemTable)
+	else
+		if (bIsPlayerTarget and !storageTable.entity:GiveItem(itemTable)) then
+			return false
+		end
+
+		player._cwNextInvFullCheck = 0;
+		if (bIsPlayerTarget) then
+			storageTable.entity._cwNextInvFullCheck = 0;
+		else
+			Clockwork.inventory:AddInstance(inventory, itemTable)
+		end
+		hook.Run("PlayerGiveToStorage", player, storageTable, itemTable)
 	end
 
 	return true
@@ -384,6 +422,14 @@ end
 function Clockwork.storage:TakeFrom(player, itemTable, bMultiple)
 	local storageTable = player:GetStorageTable()
 	if (!storageTable) then return false end
+
+	local curTime = CurTime();
+	if not bMultiple and player.cwLastStorageAction and player.cwLastStorageAction > curTime then
+		return false;
+	end;
+	if not bMultiple then
+		player.cwLastStorageAction = curTime + 0.05;
+	end;
 
 	local inventory = self:Query(player, "inventory")
 	local players = {}
@@ -403,15 +449,37 @@ function Clockwork.storage:TakeFrom(player, itemTable, bMultiple)
 	if (bCanTakeStorage == false) then return false end
 
 	if !bMultiple then
+		local bIsPlayerTarget = storageTable.entity and storageTable.entity:IsPlayer();
+		if storageTable.entity ~= nil and not IsValid(storageTable.entity) then
+			self:Close(player, true);
+			return false;
+		end;
+
+		-- Check the looter can carry it before removing it from the source (TakeItem force-unequips worn gear).
+		if (not player:CanHoldWeight(itemTable.weight) or not player:CanHoldSpace(itemTable.space)) then
+			Schema:EasyText(player, "peru", "You can only carry up to four times your non-overencumbered carrying capacity!");
+			return false;
+		end;
+
+		if (bIsPlayerTarget) then
+			if (not storageTable.entity:HasItemInstance(itemTable) or not storageTable.entity:TakeItem(itemTable)) then
+				return false;
+			end;
+		else
+			if (not Clockwork.inventory:HasItemInstance(inventory, itemTable)) then
+				return false;
+			end;
+			Clockwork.inventory:RemoveInstance(inventory, itemTable);
+		end;
+
 		local bSuccess, fault = player:GiveItem(itemTable)
 
 		if (bSuccess) then	
+			player._cwNextInvFullCheck = 0;
 			hook.Run("PlayerTakeFromStorage", player, storageTable, itemTable)
 		
-			if (!storageTable.entity or !storageTable.entity:IsPlayer()) then
-				Clockwork.inventory:RemoveInstance(inventory, itemTable)
-			else
-				storageTable.entity:TakeItem(itemTable)
+			if (bIsPlayerTarget) then
+				storageTable.entity._cwNextInvFullCheck = 0;
 			end
 				
 			for _, v in _player.Iterator() do
@@ -441,7 +509,15 @@ function Clockwork.storage:TakeFrom(player, itemTable, bMultiple)
 			
 			return true
 		else
-			Schema:EasyText(player, "peru", fault)
+			if (bIsPlayerTarget) then
+				storageTable.entity:GiveItem(itemTable, true);
+			else
+				Clockwork.inventory:AddInstance(inventory, itemTable);
+			end;
+			if fault then
+				Schema:EasyText(player, "peru", fault)
+			end;
+			return false, fault;
 		end
 	else
 		return true
@@ -470,3 +546,21 @@ function Clockwork.storage:UpdateByID(player, uniqueID, bRebuild)
 		netstream.Start(player, "StorageGive", {index = itemTable.index, itemList = itemList, bRebuild = bRebuild})
 	end
 end
+
+-- A function to close storage for all players viewing an entity.
+function Clockwork.storage:CloseEntity(entity)
+	if (!IsValid(entity)) then return; end;
+	for _, v in _player.Iterator() do
+		if (v:HasInitialized() and self:Query(v, "entity") == entity) then
+			self:Close(v, true);
+		end;
+	end;
+end;
+
+hook.Add("EntityRemoved", "Clockwork.storage:EntityRemoved", function(entity)
+	if (Clockwork.ShuttingDown or not IsValid(entity)) then return; end;
+	local class = entity:GetClass();
+	if (entity.cwInventory or entity.cwStorageTab or entity:IsPlayer() or (cwStorage and cwStorage.storage and cwStorage.storage[entity]) or class == "cw_shipment" or class == "cw_belongings") then
+		Clockwork.storage:CloseEntity(entity);
+	end;
+end);

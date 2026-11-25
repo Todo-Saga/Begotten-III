@@ -131,9 +131,7 @@ local iconoclastColor = Color(150, 150, 150);
 -- This can be optimized more.
 function cwBeliefs:AddEntityOutlines(outlines)
 	if self.highlightTargetOverride then
-		if IsValid(self.highlightTargetOverride) then
-			self:DrawPlayerOutline(self.highlightTargetOverride, outlines, warcryColor);
-		end
+		self:DrawPlayerOutline(self.highlightTargetOverride, outlines, warcryColor);
 	end
 	
 	local localPlayer = Clockwork.Client;
@@ -218,6 +216,7 @@ function cwBeliefs:AddEntityOutlines(outlines)
 end
 
 function cwBeliefs:DrawPlayerOutline(player, outlines, color)
+	if !IsValid(player) or player:IsDormant() then return end;
 	local moveType = player:GetMoveType();
 	
 	if (moveType == MOVETYPE_WALK or moveType == MOVETYPE_LADDER) then

@@ -369,6 +369,12 @@ function cwGore:BloodEffect(entity, position)
 		position = entity:GetPos();
 	end;
 	
+	local curTime = CurTime();
+	if (entity.cwNextBloodEffect and entity.cwNextBloodEffect > curTime) then
+		return;
+	end;
+	entity.cwNextBloodEffect = curTime + 0.08;
+
 	ParticleEffect("blood_advisor_puncture_withdraw", position, AngleRand(), entity);
 	entity:EmitSound("begotten/ambient/corpse/body_flow.wav", 80, 100);
 end;

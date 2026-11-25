@@ -21,6 +21,26 @@ function cwMedicalSystem:PlayerCharacterLoaded(player)
 		-- Shit will already be networked if the leprosy disease is given.
 		player:NetworkDiseases();
 	end
+
+	local bleedingLimbs = player:GetCharacterData("BleedingLimbs", {});
+	local bleeding = false;
+
+	for k, v in pairs(bleedingLimbs) do
+		if v == true then
+			bleeding = true;
+			break;
+		end
+	end
+
+	if bleeding or player:GetCharacterData("bleeding") then
+		player.bleeding = true;
+		if not player.nextBleedPoint then
+			player.nextBleedPoint = CurTime() + 1;
+		end
+	else
+		player.bleeding = false;
+		player.nextBleedPoint = nil;
+	end
 end;
 
 -- Called when a player opens their menu.
@@ -40,7 +60,12 @@ function cwMedicalSystem:KeyPress(player, key)
 		local action = Clockwork.player:GetAction(player);
 		
 		if (action == "heal" or action == "healing" or action == "performing_surgery" or action == "chloroform") then
-			Clockwork.player:SetAction(player, nil);
+			if (action == "performing_surgery" and self.CancelSurgery) then
+				self:CancelSurgery(player);
+			end;
+			Clockwork.player:SetAction(player, false);
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
 		end
 	end;
 end;
@@ -197,7 +222,13 @@ function cwMedicalSystem:PlayerThink(player, curTime, infoTable, alive, initiali
 									end
 								elseif not plyTab.scornificationismActive then
 									player:DeathCauseOverride("Bled out in a puddle of their own blood.");
-									player:TakeDamage(1, player, player);
+									local bleedDamage = DamageInfo();
+									bleedDamage:SetDamage(1);
+									bleedDamage:SetAttacker(player);
+									bleedDamage:SetInflictor(player);
+									bleedDamage:SetDamageType(DMG_DIRECT);
+									bleedDamage:SetDamageCustom(self.DMG_CUSTOM_BLEED);
+									player:TakeDamageInfo(bleedDamage);
 								end
 							end
 
@@ -581,7 +612,8 @@ function cwMedicalSystem:PlayerThink(player, curTime, infoTable, alive, initiali
 							
 						plyTab.nextSurgeryCheck = curTime + 0.5;
 					end
-				else
+				elseif plyTab.playerPerformingSurgery.surgeryTarget ~= player or !plyTab.playerPerformingSurgery:Alive() then
+					-- The action can expire a tick before its completion callback runs; keep the lock while the surgeon still targets us.
 					plyTab.playerPerformingSurgery = nil;
 				end
 			end
@@ -852,12 +884,14 @@ end;
 
 -- Called when a player's character data should be saved.
 function cwMedicalSystem:PlayerSaveCharacterData(player, data)
-	--[[if (data["bleeding"]) then
-		data["bleeding"] = 0;
-	end;]]--
-	
 	if (data["BloodLevel"]) then
 		data["BloodLevel"] = math.Round(data["BloodLevel"]);
+	end;
+
+	if player.bleeding then
+		data["bleeding"] = true;
+	else
+		data["bleeding"] = nil;
 	end;
 end;
 

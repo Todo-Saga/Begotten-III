@@ -71,34 +71,81 @@ cwMedicalSystem.cwDefaultLimbs = {
 	[HITGROUP_GENERIC] = true,
 };
 
+cwMedicalSystem.bloodTypeStringToEnum = {
+	["O-"] = BLOODTYPE_O_NEGATIVE,
+	["O+"] = BLOODTYPE_O_POSITIVE,
+	["A-"] = BLOODTYPE_A_NEGATIVE,
+	["A+"] = BLOODTYPE_A_POSITIVE,
+	["B-"] = BLOODTYPE_B_NEGATIVE,
+	["B+"] = BLOODTYPE_B_POSITIVE,
+	["AB-"] = BLOODTYPE_AB_NEGATIVE,
+	["AB+"] = BLOODTYPE_AB_POSITIVE,
+};
+
 -- A function to compare two bloodtypes to see if they are compatible.
+-- typeA: Recipient blood type (int enum or string)
+-- typeB: Donor blood type (int enum or string)
 function cwMedicalSystem:IsBloodCompatible(typeA, typeB)
-	if (!typeA or !typeB) then
+	if (typeA == nil or typeB == nil) then
 		return;
 	end;
 	
-	if (self.bloodTypes[typeA] and self.bloodTypes[typeA][typeB]) then
+	if isstring(typeA) then
+		typeA = self.bloodTypeStringToEnum[string.upper(string.Trim(typeA))];
+	end;
+	if isstring(typeB) then
+		typeB = self.bloodTypeStringToEnum[string.upper(string.Trim(typeB))];
+	end;
+
+	if (typeA == nil or typeB == nil or !self.bloodTypes[typeA]) then
+		return false;
+	end;
+
+	if (self.bloodTypes[typeA][typeB]) then
 		return true;
 	end;
 	
 	return false;
 end;
 
+function cwMedicalSystem:CancelSurgery(player)
+	if not IsValid(player) then return; end;
+	local target = player.surgeryTarget;
+	player.surgeryTarget = nil;
+	if IsValid(target) and target.playerPerformingSurgery == player then
+		target.playerPerformingSurgery = nil;
+		target.limbUnderSurgery = nil;
+		target.injuryUnderSurgery = nil;
+	end;
+end;
+
+local function DealTransfusionDamage(target, attacker)
+	if target:Health() <= 50 and target.DeathCauseOverride then
+		target:DeathCauseOverride("Died from an incompatible blood transfusion.");
+	end;
+	local dmg = DamageInfo();
+	dmg:SetDamage(50);
+	dmg:SetAttacker(IsValid(attacker) and attacker or target);
+	dmg:SetInflictor(IsValid(attacker) and attacker or target);
+	dmg:SetDamageType(DMG_DIRECT);
+	target:TakeDamageInfo(dmg);
+end;
+
 -- A function to translate a hitgroup enum to a string.
 function cwMedicalSystem:HitgroupToString(hitGroup)
 	if (isnumber(hitGroup) and self.cwDefaultLimbs[hitGroup]) then
 		return self.cwHitGroupToString[hitGroup];
-	elseif (self.cwStringToHitGroup[hitgroup]) then
+	elseif (self.cwStringToHitGroup[hitGroup]) then
 		return hitGroup;
 	end;
 end;
 
 -- A function to translate a string to a hitgroup enum.
 function cwMedicalSystem:StringToHitGroup(str)
-	if (isstring(hitGroup)) then
-		return self.cwStringToHitGroup(str);
-	elseif (self.cwDefaultLimbs[hitGroup]) then
-		return hitGroup;
+	if (isstring(str)) then
+		return self.cwStringToHitGroup[str];
+	elseif (isnumber(str) and self.cwDefaultLimbs[str]) then
+		return str;
 	end;
 end;
 
@@ -130,6 +177,12 @@ function cwMedicalSystem:PlayerUseMedical(player, itemTable, hitGroup)
 	if (!IsValid(player) or !itemTable or !player:HasItemInstance(itemTable) or !player:Alive()) then
 		return;
 	end;
+
+	if not self:CanPerformMedicalAction(player) then
+		Schema:EasyText(player, "peru", "You cannot use medical items right now!");
+		return;
+	end;
+	
 	local action = Clockwork.player:GetAction(player);
 	
 	if (action != "heal" and action != "healing" and action != "performing_surgery") then
@@ -142,10 +195,24 @@ function cwMedicalSystem:PlayerUseMedical(player, itemTable, hitGroup)
 		player:SetWeaponRaised(false);
 			
 		Clockwork.player:SetAction(player, "heal", consumeTime, nil, function()
-			if !IsValid(player) then
+			if !IsValid(player) or !player:Alive() or !player:HasItemInstance(itemTable) then
 				return;
 			end
 		
+			if (itemTable("restoresBlood")) then
+				local playerBloodType = player:GetCharacterData("BloodType");
+				local bloodType = itemTable("bloodType") or (itemTable.GetData and itemTable:GetData("BloodType"));
+
+				if (bloodType and playerBloodType and self:IsBloodCompatible(playerBloodType, bloodType) == false) then
+					DealTransfusionDamage(player, player);
+					Schema:EasyText(player, "red", "The transfused blood is incompatible with your body!");
+					player:TakeItem(itemTable, true);
+					return false;
+				else
+					player:ModifyBloodLevel(itemTable("restoresBlood"));
+				end;
+			end;
+
 			if (itemTable("morphine")) then
 				netstream.Start(player, "Stunned", 1);
 				netstream.Start(player, "MorphineDream", 60);
@@ -308,10 +375,6 @@ function cwMedicalSystem:PlayerUseMedical(player, itemTable, hitGroup)
 				end);
 			end;
 			
-			if (itemTable("restoresBlood")) then
-				player:ModifyBloodLevel(itemTable("restoresBlood"));
-			end
-		
 			if cwBeliefs then
 				player:HandleXP(itemTable.useXP or 5);
 			end
@@ -332,6 +395,11 @@ function cwMedicalSystem:HealPlayer(player, target, itemTable, hitGroup)
 	if (!IsValid(player) or !IsValid(target) or !itemTable or !player:HasItemInstance(itemTable) or !player:Alive() or !target:Alive()) then
 		return;
 	end;
+
+	if not self:CanPerformMedicalAction(player) or not self:CanPerformMedicalAction(target) then
+		Schema:EasyText(player, "peru", "You cannot heal someone while airborne!");
+		return;
+	end;
 	
 	local actionPlayer = Clockwork.player:GetAction(player);
 	local actionTarget = Clockwork.player:GetAction(target);
@@ -350,9 +418,26 @@ function cwMedicalSystem:HealPlayer(player, target, itemTable, hitGroup)
 			player:SetWeaponRaised(false);
 			
 			Clockwork.player:SetAction(player, "healing", consumeTime, nil, function()
-				if !IsValid(player) or !IsValid(target) then
+				if !IsValid(player) or !IsValid(target) or !player:Alive() or !target:Alive() or !player:HasItemInstance(itemTable) then
 					return;
 				end
+
+				if (itemTable("restoresBlood")) then
+					local targetBloodType = target:GetCharacterData("BloodType");
+					local bloodType = itemTable("bloodType") or (itemTable.GetData and itemTable:GetData("BloodType"));
+
+					if (bloodType and targetBloodType and self:IsBloodCompatible(targetBloodType, bloodType) == false) then
+						DealTransfusionDamage(target, player);
+						Schema:EasyText(target, "red", "The transfused blood is incompatible with your body!");
+						if player ~= target then
+							Schema:EasyText(player, "red", "The transfused blood is incompatible with the patient's body!");
+						end;
+						player:TakeItem(itemTable, true);
+						return;
+					else
+						target:ModifyBloodLevel(itemTable("restoresBlood"));
+					end;
+				end;
 				
 				if (itemTable("stopsBleeding") and target.bleeding) then
 					if itemTable.limbs and istable(itemTable.limbs) and #itemTable.limbs > 0 and hitGroup then
@@ -523,10 +608,6 @@ function cwMedicalSystem:HealPlayer(player, target, itemTable, hitGroup)
 					end);
 				end;
 				
-				if (itemTable("restoresBlood")) then
-					target:ModifyBloodLevel(itemTable("restoresBlood"));
-				end
-
 				hook.Run("PlayerHealed", target, itemTable);
 				
 				if cwBeliefs then
@@ -551,7 +632,12 @@ end;
 
 -- Called when a player attempts to perform surgery on another player.
 function cwMedicalSystem:PerformSurgeryOnPlayer(player, target, itemTable, hitGroup)
-	if (!IsValid(player) or !IsValid(target) or !itemTable or !player:Alive() or !target:Alive()) then
+	if (!IsValid(player) or !IsValid(target) or !itemTable or !player:HasItemInstance(itemTable) or !player:Alive() or !target:Alive()) then
+		return;
+	end;
+
+	if not self:CanPerformMedicalAction(player) then
+		Schema:EasyText(player, "peru", "You cannot perform surgery while in the air!");
 		return;
 	end;
 	
@@ -650,13 +736,59 @@ function cwMedicalSystem:PerformSurgeryOnPlayer(player, target, itemTable, hitGr
 			target.limbUnderSurgery = hitGroup;
 			target.injuryUnderSurgery = injury_surgery_table.uniqueID;
 			target.playerPerformingSurgery = player;
+			player.surgeryTarget = target;
 		
 			Clockwork.player:SetAction(player, "performing_surgery", surgeryTime, nil, function()
-				if !IsValid(player) or !IsValid(target) then
+				if IsValid(player) and player.surgeryTarget == target then
+					player.surgeryTarget = nil;
+				end;
+
+				if !IsValid(player) then
+					if IsValid(target) and target.playerPerformingSurgery == player then
+						target.playerPerformingSurgery = nil;
+						target.limbUnderSurgery = nil;
+						target.injuryUnderSurgery = nil;
+						target.surgeryStage = nil;
+					end;
+					return;
+				end;
+
+				if !IsValid(target) then
+					return;
+				end;
+
+				if target.playerPerformingSurgery ~= player or target.limbUnderSurgery ~= hitGroup then
+					Schema:EasyText(player, "chocolate", "The surgical state changed before the operation completed!");
+					return;
+				end;
+
+				if !player:Alive() or !target:Alive() then
+					target.playerPerformingSurgery = nil;
+					target.limbUnderSurgery = nil;
+					target.injuryUnderSurgery = nil;
+					target.surgeryStage = nil;
+					return;
+				end;
+				
+				if not player:HasItemInstance(itemTable) then
+					Schema:EasyText(player, "chocolate", "You no longer have the required medical tool!");
+					target.playerPerformingSurgery = nil;
+					target.limbUnderSurgery = nil;
+					target.injuryUnderSurgery = nil;
+					target.surgeryStage = nil;
 					return;
 				end
-				
-				if target:IsRagdolled() then		
+
+				if target:IsRagdolled() then
+					if target.injuryUnderSurgery ~= injury_surgery_table.uniqueID or not target.surgeryStage or not injury_surgery_table.surgeryInfo[target.surgeryStage] or injury_surgery_table.surgeryInfo[target.surgeryStage].tool ~= itemTable.uniqueID then
+						target.playerPerformingSurgery = nil;
+						target.limbUnderSurgery = nil;
+						target.injuryUnderSurgery = nil;
+						target.surgeryStage = nil;
+						Schema:EasyText(player, "chocolate", "The surgical state changed before the operation completed!");
+						return;
+					end
+
 					--[[if !target:IsNoClipping() and (!target.GetCharmEquipped or !target:GetCharmEquipped("urn_silence")) then
 						local useSound = itemTable.useSound;
 						
@@ -708,6 +840,9 @@ function cwMedicalSystem:PerformSurgeryOnPlayer(player, target, itemTable, hitGr
 
 					hook.Run("PlayerHealed", target, itemTable);
 				else
+					target.playerPerformingSurgery = nil;
+					target.limbUnderSurgery = nil;
+					target.injuryUnderSurgery = nil;
 					Schema:EasyText(player, "chocolate","To perform surgery on someone, they must be fallen over.");
 				end
 			end);

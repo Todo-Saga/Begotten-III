@@ -13,6 +13,45 @@ Clockwork.kernel:IncludePrefixed("sv_plugin.lua");
 
 game.AddDecal("BloodLarge", "decals/bloodstain_002");
 
+cwMedicalSystem.DMG_CUSTOM_BLEED = 1024;
+
+if (SERVER) then
+	util.AddNetworkString("cwResetViewModelIdle");
+else
+	net.Receive("cwResetViewModelIdle", function()
+		if IsValid(Clockwork.Client) then
+			local wep = Clockwork.Client:GetActiveWeapon();
+			if IsValid(wep) and wep.SendWeaponAnim and not Clockwork.Client:GetNetVar("Guardening") and (not wep.GetIronsights or not wep:GetIronsights()) and (not wep.GetNextPrimaryFire or wep:GetNextPrimaryFire() <= CurTime()) then
+				wep:SendWeaponAnim(ACT_VM_IDLE);
+			end;
+		end;
+	end);
+end;
+
+local medicalGroundTrace = { mask = MASK_PLAYERSOLID };
+function cwMedicalSystem:CanPerformMedicalAction(player)
+	if not IsValid(player) then return false; end;
+	if not player:IsOnGround() and player:GetMoveType() == MOVETYPE_WALK and player:WaterLevel() < 2 then
+		local pos = player:GetPos();
+		medicalGroundTrace.start = pos;
+		medicalGroundTrace.endpos = pos - Vector(0, 0, 18);
+		medicalGroundTrace.filter = player;
+		local tr = util.TraceLine(medicalGroundTrace);
+		medicalGroundTrace.filter = nil;
+		if not tr.Hit then
+			return false;
+		end;
+	end;
+	return true;
+end;
+
+-- Called to check if a player can use a medical item.
+function cwMedicalSystem:PlayerCanUseMedical(player, itemTable)
+	if not self:CanPerformMedicalAction(player) then
+		return false;
+	end;
+end;
+
 -- this is shit, i'm replacing it with a ModifyPlayerSpeed hook
 -- Called when the player's move data should be manipulated.
 --[[function cwMedicalSystem:Move(player, moveData)

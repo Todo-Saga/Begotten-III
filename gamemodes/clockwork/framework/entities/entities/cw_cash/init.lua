@@ -39,7 +39,7 @@ end
 
 -- Called when the entity's transmit state should be updated.
 function ENT:UpdateTransmitState()
-	return TRANSMIT_ALWAYS
+	return TRANSMIT_PVS
 end
 
 -- A function to set the amount of cash.

@@ -63,12 +63,20 @@ function Clockwork.inventory:CalculateSpace(inventory)
 end
 
 -- A function to calculate the weight of an inventory.
-function Clockwork.inventory:CalculateWeight(inventory)
+function Clockwork.inventory:CalculateWeight(inventory, visited, depth)
+	if (!istable(inventory)) then return 0; end;
 	local weight = 0
+	visited = visited or {};
+	depth = depth or 0;
+	if (depth >= 16 or visited[inventory]) then return 0; end;
+	visited[inventory] = true;
 
 	for k, v in pairs(self:GetAsItemsList(inventory)) do
 		if (v.weight) then
 			weight = weight + v.weight
+		end
+		if (istable(v.inventory)) then
+			weight = weight + self:CalculateWeight(v.inventory, visited, depth + 1)
 		end
 	end
 
@@ -169,8 +177,12 @@ end
 -- A function to get an inventory as an items list.
 function Clockwork.inventory:GetAsItemsList(inventory)
 	local itemsList = {}
-		for k, v in pairs(inventory) do
-			table.Add(itemsList, v)
+		if (istable(inventory)) then
+			for k, v in pairs(inventory) do
+				if (istable(v)) then
+					table.Add(itemsList, v)
+				end
+			end
 		end
 	return itemsList
 end
@@ -621,28 +633,11 @@ else
 						end
 			
 						if (repairItemTable) then
-							if repairItemTable then
-								local conditionReplenishment = repairItemTable.conditionReplenishment or 100;
-								local replenishment = (conditionReplenishment) - (((100 - repairItemTable:GetCondition()) * (itemTable.repairCostModifier or 1)) * (conditionReplenishment / 100));
-								
-								itemTable:GiveCondition(math.min(replenishment, 100));
-								repairItemTable:TakeCondition((itemTable:GetCondition() - itemCondition) * (itemTable.repairCostModifier or 1) / (conditionReplenishment / 100));
-								
-								if repairItemTable:GetCondition() <= 0 then
-									player:TakeItem(repairItemTable, true);
-									
-									player:EmitSound("generic_ui/randomize_0"..math.random(1, 2)..".wav")
-									Schema:EasyText(player, "olivedrab", "You have repaired your "..itemTable.name.." to "..tostring(math.Round(itemTable:GetCondition(), 2))..", using the last of the repair kit's parts in the process.");
-								else
-									player:EmitSound("generic_ui/randomize_0"..math.random(1, 2)..".wav")
-									Schema:EasyText(player, "green", "You have repaired your "..itemTable.name.." to "..tostring(math.Round(itemTable:GetCondition(), 2))..".");
-									Clockwork.inventory:Rebuild(player);
-								end
-							else
-								Schema:EasyText(player, "chocolate", "You do not have an item you can repair this item with!");
-								return false;
-							end
-						end
+							return Clockwork.inventory:ApplyRepairKit(player, itemTable, repairItemTable);
+						else
+							Schema:EasyText(player, "chocolate", "You do not have an item you can repair this item with!");
+							return false;
+						end;
 					end
 				else
 					Clockwork.player:Notify(player, "This item is already in perfect condition and cannot be repaired.");
@@ -829,51 +824,7 @@ else
 
 				Clockwork.player:Notify(player, examineText);
 			elseif (itemAction == "ammo") then
-				if (item.IsWeapon(itemTable)) then
-					local ammo = itemTable:GetData("Ammo");
-					
-					if ammo and #ammo > 0 then
-						if #ammo == 1 then
-							if itemTable.usesMagazine and string.find(ammo[1], "Magazine") then
-								local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-								local magazineItem = item.CreateInstance(ammoItemID);
-								
-								if magazineItem and magazineItem.SetAmmoMagazine then
-									magazineItem:SetAmmoMagazine(1);
-									
-									player:GiveItem(magazineItem);
-								end
-							else
-								local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-								
-								player:GiveItem(item.CreateInstance(ammoItemID));
-							end
-						elseif itemTable.usesMagazine then
-							local ammoItemID = string.gsub(string.lower(ammo[1]), " ", "_");
-							
-							local magazineItem = item.CreateInstance(ammoItemID);
-							
-							if magazineItem and magazineItem.SetAmmoMagazine then
-								magazineItem:SetAmmoMagazine(#ammo);
-								
-								player:GiveItem(magazineItem);
-							end
-						else
-							for i = 1, #ammo do
-								local round = ammo[i];
-								
-								if round then
-									local roundItemID = string.gsub(string.lower(round), " ", "_");
-									local roundItemInstance = item.CreateInstance(roundItemID);
-									
-									player:GiveItem(roundItemInstance);
-								end
-							end
-						end
-
-						itemTable:SetData("Ammo", {});
-					end
-				end
+				item.UnloadWeaponAmmo(player, itemTable);
 			elseif (itemAction == "magazineammo") then
 				if (itemTable.category == "Shot" and itemTable.ammoMagazineSize) then
 					if itemTable.TakeFromMagazine then
@@ -892,3 +843,54 @@ else
 		Clockwork.inventory:InventoryAction(player, data[1], data[2], data[3], data[4], data[5]);
 	end)
 end
+
+if (SERVER) then
+	-- A function to apply a repair kit to an item.
+	-- bAllowBroken: skip the Artisan requirement for broken items (ground repair never had it upstream).
+	function Clockwork.inventory:ApplyRepairKit(player, itemTable, repairItemTable, bAllowBroken)
+		if not (IsValid(player) and itemTable and repairItemTable) then return false end;
+		if not player:HasItemInstance(repairItemTable) then return false end;
+
+		local itemCondition = itemTable:GetCondition();
+		if not itemCondition or itemCondition >= 100 then
+			Schema:EasyText(player, "peru", "This item is already in perfect condition and cannot be repaired.");
+			return false;
+		end;
+
+		if itemCondition <= 0 and !bAllowBroken then
+			if !cwBeliefs or !player:HasBelief("artisan") then
+				Schema:EasyText(player, "peru", "You cannot repair broken items!");
+				return false;
+			end;
+		end;
+
+		local conditionReplenishment = repairItemTable.conditionReplenishment or 100;
+		if (conditionReplenishment <= 0) then conditionReplenishment = 100; end;
+		local costMod = itemTable.repairCostModifier or 1;
+		if (costMod <= 0) then costMod = 1; end;
+		local kitCondition = repairItemTable:GetCondition() or 100;
+		if kitCondition <= 0 then
+			Schema:EasyText(player, "peru", "This repair kit is depleted and cannot be used!");
+			return false;
+		end;
+		-- Upstream repair formula.
+		local replenishment = conditionReplenishment - (((100 - kitCondition) * costMod) * (conditionReplenishment / 100));
+
+		itemTable:GiveCondition(math.min(replenishment, 100));
+
+		local newCondition = itemTable:GetCondition() or itemCondition;
+		local applied = math.max(0, newCondition - itemCondition);
+		local kitLoss = (applied * costMod) / (conditionReplenishment / 100);
+		repairItemTable:TakeCondition(kitLoss);
+		
+		player:EmitSound("generic_ui/randomize_0"..math.random(1, 2)..".wav");
+		if repairItemTable:GetCondition() <= 0.01 then
+			player:TakeItem(repairItemTable, true);
+			Schema:EasyText(player, "olivedrab", "You have repaired your "..itemTable.name.." to "..tostring(math.Round(itemTable:GetCondition(), 2))..", using the last of the repair kit's parts in the process.");
+		else
+			Schema:EasyText(player, "green", "You have repaired your "..itemTable.name.." to "..tostring(math.Round(itemTable:GetCondition(), 2))..".");
+		end;
+		Clockwork.inventory:Rebuild(player);
+		return true;
+	end;
+end;

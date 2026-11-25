@@ -228,12 +228,18 @@ if cwWeather.systemEnabled then
 		};
 	end
 	
-	function cwWeather:IsOutside(pos)
+	function cwWeather:IsOutside(pos, filter)
 		local trace = {}
 		trace.start = pos
 		trace.endpos = trace.start + Vector(0, 0, 32768)
 		trace.mask = MASK_SOLID
 		trace.collisiongroup = COLLISION_GROUP_WEAPON
+		if filter then
+			trace.filter = filter;
+		elseif CLIENT and IsValid(Clockwork.Client) then
+			local ragdoll = Clockwork.Client.GetRagdollEntity and Clockwork.Client:GetRagdollEntity();
+			trace.filter = IsValid(ragdoll) and {Clockwork.Client, ragdoll} or Clockwork.Client;
+		end
 		local tr = util.TraceLine(trace)
 
 		if CLIENT then

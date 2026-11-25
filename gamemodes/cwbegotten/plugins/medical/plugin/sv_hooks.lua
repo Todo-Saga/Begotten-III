@@ -11,8 +11,12 @@ cwMedicalSystem.bleedDamageThresholds = {
 	[DMG_VEHICLE] = 10, -- stab
 };
 
+local MEDICAL_DAMAGE_TYPES = {DMG_FALL, DMG_BULLET, DMG_BUCKSHOT, DMG_BURN, DMG_CLUB, DMG_SLASH, DMG_VEHICLE};
+
 -- Called when a player's character has loaded.
 function cwMedicalSystem:PlayerCharacterLoaded(player)
+	player._cwLastSentInjuries = nil;
+	player._cwLastSentLimbs = nil;
 	player.nextDiseaseCheck = CurTime() + math.random(120, 180);
 	
 	if player:HasTrait("leper") and not player:HasDisease("leprosy") then
@@ -680,13 +684,12 @@ function cwMedicalSystem:PostCalculatePlayerDamage(player, hitGroup, damageInfo)
 		
 		--local damageType = damageInfo:GetDamageType();
 		local damageType;
-		local damageTypes = {DMG_FALL, DMG_BULLET, DMG_BUCKSHOT, DMG_BURN, DMG_CLUB, DMG_SLASH, DMG_VEHICLE};
 		local damage = damageInfo:GetDamage();
 		local helmetItem = player:GetHelmetEquipped();
 		
-		for i = 1, #damageTypes do
-			if damageInfo:IsDamageType(damageTypes[i]) then
-				damageType = damageTypes[i];
+		for i = 1, #MEDICAL_DAMAGE_TYPES do
+			if damageInfo:IsDamageType(MEDICAL_DAMAGE_TYPES[i]) then
+				damageType = MEDICAL_DAMAGE_TYPES[i];
 				break;
 			end
 		end
@@ -898,6 +901,8 @@ function cwMedicalSystem:PlayerDeath(player, inflictor, attacker, damageInfo)
 		player:SetCharacterData("BloodLevel", self.maxBloodLevel);
 		player:SetNWInt("BloodLevel", player:GetCharacterData("BloodLevel", self.maxBloodLevel));
 		
+		player._cwLastSentInjuries = nil;
+		player._cwLastSentLimbs = nil;
 		self:SetupPlayer(player);
 		self:StopAllBleeding(player);
 		
@@ -1015,6 +1020,8 @@ function cwMedicalSystem:PlayerHealed(player, itemTable) end;
 
 -- Called just after a player spawns.
 function cwMedicalSystem:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
+	player._cwLastSentInjuries = nil;
+	player._cwLastSentLimbs = nil;
 	--Clockwork.player:SetAction(player, "die", false);
 	--Clockwork.player:SetAction(player, "die_bleedout", false);
 	

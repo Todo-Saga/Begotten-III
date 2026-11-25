@@ -1424,20 +1424,27 @@ function Schema:PlayerDoesRecognisePlayer(target, status, isAccurate, realValue)
 	end
 end;
 
+local cv_3dsky = GetConVar("r_3dsky");
+local cv_blur = GetConVar("mat_motion_blur_enabled");
+
 -- Called each tick.
 function Schema:Tick()
 	local curTime = CurTime();
 	
 	-- This should stop people from loweirng their FPS to make lockpicking easier, at least w/o external programs.
 	if !self.nextFPSCheck or curTime >= self.nextFPSCheck then
-		self.nextFPSCheck = curTime + 0.05;
-		
+		self.nextFPSCheck = curTime + 1.0;
+		if not cv_3dsky then cv_3dsky = GetConVar("r_3dsky"); end;
+		if cv_3dsky and cv_3dsky:GetInt() ~= 1 then
+			RunConsoleCommand("r_3dsky", "1")
+		end
 		--RunConsoleCommand("fps_max", "300");
 		--RunConsoleCommand("hud_draw_fixed_reticle", "0");
-		RunConsoleCommand("mat_motion_blur_enabled", "1");
+		if not cv_blur then cv_blur = GetConVar("mat_motion_blur_enabled"); end;
+		if cv_blur and cv_blur:GetInt() ~= 1 then
+			RunConsoleCommand("mat_motion_blur_enabled", "1")
+		end
 	end
-	
-	RunConsoleCommand("r_3dsky", "1");
 	--RunConsoleCommand("r_pixelfog", "1");
 	--RunConsoleCommand("mat_monitorgamma_tv_enabled", "0");
 
@@ -1445,26 +1452,28 @@ function Schema:Tick()
 	if !self.nextClientsideModelCheck or curTime >= self.nextClientsideModelCheck then
 		self.nextClientsideModelCheck = curTime + 10;
 
+		if not IsValid(Clockwork.Client) then
+			return;
+		end
+
 		if Clockwork.character:IsPanelOpen() then
 			return;
 		end
 		
 		-- dunno why this check is needed but it apparently is
-		if IsValid(Clockwork.Client) and Clockwork.Client.GetNW2Bool then
+		if Clockwork.Client.GetNW2Bool then
 			if Clockwork.Client:GetNW2Bool("pac_in_editor") then
 				return;
 			end
 		end
 		
-		for k, v in pairs(ents.GetAll()) do
-			if string.find(v:GetClass(), "class C_BaseFlex") and v:GetModel() then
-				if IsValid(v) and IsValid(Clockwork.Client) and v:GetPos() == Vector(0, 0, 0) then
-					if v:GetModel() == Clockwork.Client:GetModel() or v.noDelete then
-						continue;
-					end
-					
-					v:Remove();
+		local clientModel = Clockwork.Client:GetModel();
+		for _, v in ipairs(ents.GetAll()) do
+			if IsValid(v) and v:GetClass() == "class C_BaseFlex" and v:GetModel() and v:GetPos():IsZero() then
+				if v:GetModel() == clientModel or v.noDelete then
+					continue;
 				end
+				v:Remove();
 			end
 		end
 		

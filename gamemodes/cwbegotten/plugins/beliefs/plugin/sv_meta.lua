@@ -147,7 +147,10 @@ function playerMeta:HasBelief(uniqueID, bHasAny)
 		return true;
 	end
 	
-	local beliefs = self:GetCharacterData("beliefs", {});
+	local beliefs = self:GetCharacterData("beliefs");
+	if (!beliefs) then
+		return false;
+	end;
 	
 	if istable(uniqueID) then
 		if bHasAny then

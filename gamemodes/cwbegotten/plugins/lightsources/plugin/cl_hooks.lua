@@ -21,6 +21,10 @@ function cwLantern:PlayerAdjustItemFunctions(itemTable, itemFunctions)
 	--]]
 end;
 
+local function sortByDist(a, b)
+	return a.distSq < b.distSq;
+end;
+
 -- Called every frame.
 function cwLantern:Think()
 	local curTime = CurTime();
@@ -40,17 +44,41 @@ function cwLantern:Think()
 			reqDistance = (zones.currentFogEnd * zones.currentFogEnd);
 		end;
 
+		local candidates = {};
+
 		for _, v in _player.Iterator() do
-			if (v:Alive()) then
-				local activeWeapon = v:GetActiveWeapon();
-				
-				if (activeWeapon:IsValid() and activeWeapon:GetClass() == "cw_lantern") or v:GetNetVar("lanternOnHip") then
-					local position = v:GetPos();
-					
-					if (position:DistToSqr(clientPosition) <= reqDistance) then
-						self.lanternPlayers[v] = true;
+			if (v:Alive() and not v:IsDormant() and not v:GetNetVar("hidden")) then
+				local isRaised, activeWeapon = v:IsWeaponRaised();
+				local hasLantern = v:GetNetVar("lanternOnHip");
+				if not hasLantern and isRaised then
+					if IsValid(activeWeapon) and activeWeapon:GetClass() == "cw_lantern" then
+						hasLantern = true;
 					end;
 				end;
+				
+				if hasLantern and (v:GetNetVar("oil", 0) > 0) then
+					local position = v:GetPos();
+					local distSq = position:DistToSqr(clientPosition);
+					
+					if (distSq <= reqDistance) then
+						if (v == Clockwork.Client) then
+							self.lanternPlayers[v] = true;
+						else
+							candidates[#candidates + 1] = {ply = v, distSq = distSq};
+						end;
+					end;
+				end;
+			end;
+		end;
+
+		if (#candidates > 24) then
+			table.sort(candidates, sortByDist);
+			for i = 1, 24 do
+				self.lanternPlayers[candidates[i].ply] = true;
+			end;
+		else
+			for i = 1, #candidates do
+				self.lanternPlayers[candidates[i].ply] = true;
 			end;
 		end;
 	end;
@@ -63,7 +91,7 @@ function cwLantern:Think()
 		
 		local isRaised, activeWeapon = k:IsWeaponRaised();
 		
-		if !k:GetNetVar("lanternOnHip") and (!isRaised or (activeWeapon:IsValid() and activeWeapon:GetClass() != "cw_lantern")) then
+		if !k:GetNetVar("lanternOnHip") and (!isRaised or not IsValid(activeWeapon) or activeWeapon:GetClass() != "cw_lantern") then
 			self.lanternPlayers[k] = nil;
 			continue;
 		end;

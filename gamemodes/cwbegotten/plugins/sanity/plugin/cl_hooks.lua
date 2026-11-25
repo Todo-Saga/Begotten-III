@@ -47,10 +47,11 @@ function cwSanity:PostDrawOpaqueRenderables()
 		local position = Clockwork.Client:GetPos();
 		
 		if (sanity <= 20) then
-			for k, v in pairs (ents.FindInSphere(position, 512)) do
+			for _, v in _player.Iterator() do
+				if (v == Clockwork.Client or v:IsDormant()) then continue end;
 				local moveType = v:GetMoveType();
 				
-				if (v:IsPlayer() and (moveType == MOVETYPE_WALK or moveType == MOVETYPE_LADDER) and v != Clockwork.Client) then
+				if ((moveType == MOVETYPE_WALK or moveType == MOVETYPE_LADDER) and v:GetPos():DistToSqr(position) <= 262144) then
 					if v:GetNW2Bool("Cloaked") then continue end;
 				
 					local model = v:GetModel();
@@ -590,8 +591,8 @@ function cwSanity:RenderScreenspaceEffects()
 		if (sanity <= 20) and !has_saintly_composure and !Clockwork.Client.victim then 
 			local shouldPlay = false
 
-			for k, v in pairs(player.GetAll()) do
-				if (v != Clockwork.Client) then
+			for _, v in _player.Iterator() do
+				if (v != Clockwork.Client and not v:IsDormant()) then
 					local playerIndex = v:EntIndex();
 					local playerPosition = v:GetPos();
 					local distance = playerPosition:DistToSqr(position);

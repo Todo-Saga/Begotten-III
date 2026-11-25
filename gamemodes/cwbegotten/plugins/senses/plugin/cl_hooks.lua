@@ -36,6 +36,8 @@ function cwSenses:RenderScreenspaceEffects()
 				for _, v in _player.Iterator() do
 					if (v:Alive() and v:HasInitialized() and !v:IsNoClipping()) then
 						local ragdollEntity = v:GetRagdollEntity();
+						local drawEnt = IsValid(ragdollEntity) and ragdollEntity or v;
+						if (drawEnt:IsDormant()) then continue end;
 						
 						render.SuppressEngineLighting(true);
 						

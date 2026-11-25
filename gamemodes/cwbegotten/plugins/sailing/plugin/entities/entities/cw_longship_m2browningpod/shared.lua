@@ -88,17 +88,21 @@ if (SERVER) then
 				
 				ang:RotateAroundAxis(ang:Up(), 90)
 				
+				if (!self.gunAng) then self.gunAng = ang; end
 				self.gunAng = LerpAngle( .1, self.gunAng, ang )
-				self.gun:SetAngles(self.gunAng)
+				if IsValid(self.gun) then
+					self.gun:SetAngles(self.gunAng)
+				end
 			else
 				local ang = self.Owner:GetAimVector():Angle()
 			
 				ang:RotateAroundAxis(ang:Up(), -90)
 			
+				if (!self.gunAng) then self.gunAng = ang; end
 				self.gunAng = LerpAngle(.25, self.gunAng, ang)
-				self.gun:SetAngles(self.gunAng)
 				
 				if IsValid(self.gun) then
+					self.gun:SetAngles(self.gunAng)
 					self.gun.Primary.Delay = 1/(800/60)
 				end
 			end

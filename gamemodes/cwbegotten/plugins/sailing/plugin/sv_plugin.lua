@@ -217,6 +217,117 @@ function cwSailing:LongshipExists(itemID)
 	end
 end
 
+function cwSailing:ClearDockZone(pos, radius, ignorePlayers)
+	local checkRadius = radius or 400;
+	local nearby = ents.FindInSphere(pos, checkRadius);
+	local candidateOffsets = {0, 90, -90, 45, -45, 135, -135, 180};
+
+	for _, ent in ipairs(nearby) do
+		if IsValid(ent) and ent:IsPlayer() and ent:Alive() and not ent.cwObserverMode and ent:GetMoveType() ~= MOVETYPE_NOCLIP and not ent:InVehicle() then
+			if !ignorePlayers or !ignorePlayers[ent] then
+				local baseDir = (ent:GetPos() - pos);
+				baseDir.z = 0;
+				if baseDir:LengthSqr() < 1 then
+					baseDir = Vector(0, 1, 0);
+				else
+					baseDir:Normalize();
+				end
+
+				local entPos = ent:GetPos();
+				local mins, maxs = ent:OBBMins(), ent:OBBMaxs();
+				local placedPos = nil;
+
+				if not ent:IsRagdolled() then
+					for _, deg in ipairs(candidateOffsets) do
+						local rad = math.rad(deg);
+						local c, s = math.cos(rad), math.sin(rad);
+						local dir = Vector(baseDir.x * c - baseDir.y * s, baseDir.x * s + baseDir.y * c, 0);
+						local bumpPos = pos + dir * (checkRadius + 32);
+
+						local horizTrace = util.TraceHull({
+							start = entPos + Vector(0, 0, 24),
+							endpos = Vector(bumpPos.x, bumpPos.y, entPos.z + 24),
+							mins = mins,
+							maxs = maxs,
+							filter = ent,
+							mask = MASK_PLAYERSOLID
+						});
+						if horizTrace.Hit then continue end;
+
+						local groundTrace = util.TraceLine({
+							start = Vector(bumpPos.x, bumpPos.y, entPos.z + 32),
+							endpos = Vector(bumpPos.x, bumpPos.y, entPos.z - 256),
+							filter = ent,
+							mask = MASK_PLAYERSOLID
+						});
+						if not groundTrace.Hit then continue end;
+
+						local inWater = bit.band(util.PointContents(groundTrace.HitPos + Vector(0, 0, 2)), CONTENTS_WATER) ~= 0;
+						if inWater then continue end;
+
+						bumpPos.z = groundTrace.HitPos.z + 8;
+						local tr = util.TraceHull({
+							start = bumpPos,
+							endpos = bumpPos,
+							mins = mins,
+							maxs = maxs,
+							filter = ent,
+							mask = MASK_PLAYERSOLID
+						});
+						if util.IsInWorld(bumpPos) and not tr.Hit then
+							placedPos = bumpPos;
+							break;
+						end;
+					end;
+				end;
+
+				if placedPos then
+					ent:SetPos(placedPos);
+				else
+					local fallbackPos = nil;
+					local radialAngles = {0, 45, -45, 90, -90, 135, -135, 180};
+					local radii = {checkRadius + 48, checkRadius + 96};
+					for _, rDist in ipairs(radii) do
+						if fallbackPos then break end;
+						for _, deg in ipairs(radialAngles) do
+							local rad = math.rad(deg);
+							local c, s = math.cos(rad), math.sin(rad);
+							local dir = Vector(baseDir.x * c - baseDir.y * s, baseDir.x * s + baseDir.y * c, 0);
+							local cand = pos + dir * rDist;
+							local gTr = util.TraceLine({
+								start = Vector(cand.x, cand.y, entPos.z + 64),
+								endpos = Vector(cand.x, cand.y, entPos.z - 256),
+								filter = ent,
+								mask = MASK_PLAYERSOLID
+							});
+							if gTr.Hit and bit.band(util.PointContents(gTr.HitPos + Vector(0, 0, 2)), CONTENTS_WATER) == 0 then
+								cand.z = gTr.HitPos.z + 8;
+								local hullTr = util.TraceHull({
+									start = cand,
+									endpos = cand,
+									mins = mins,
+									maxs = maxs,
+									filter = ent,
+									mask = MASK_PLAYERSOLID
+								});
+								if util.IsInWorld(cand) and not hullTr.Hit then
+									fallbackPos = cand;
+									break;
+								end;
+							end;
+						end;
+					end;
+					if not fallbackPos then
+						fallbackPos = entPos + Vector(0, 0, 8);
+					end;
+					Clockwork.player:SetSafePosition(ent, fallbackPos);
+				end;
+				ent:SetVelocity(-ent:GetVelocity());
+			end
+		end
+	end
+end
+
 function cwSailing:SpawnLongship(owner, location, itemTable)
 	if IsValid(owner) then
 		if !itemTable or !self:LongshipExists(itemTable.itemID) then
@@ -242,6 +353,7 @@ function cwSailing:SpawnLongship(owner, location, itemTable)
 					longshipBodygroup = destination.bodygroup;
 				end
 			
+				self:ClearDockZone(destination.pos, longshipEnt.longshipType == "ironclad" and 500 or 350, nil);
 				longshipEnt:SetPos(destination.pos);
 				longshipEnt:SetAngles(longshipAngles);
 				longshipEnt:SetBodygroup(0, longshipBodygroup);
@@ -347,6 +459,15 @@ function cwSailing:BeginSailing(longshipEnt, destination, caller)
 	local longshipEntPos = longshipEnt:GetPos();
 	local longshipEntAngles = longshipEnt:GetAngles();
 
+	if (IsValid(longshipEnt.pilot) and longshipEnt.pilot ~= caller and longshipEnt.pilot:Alive() and not longshipEnt.pilot:IsRagdolled() and (longshipEnt.pilot:GetNetVar("tied", 0) or 0) == 0) then
+		if caller:GetCharacterKey() ~= longshipEnt.ownerID and (longshipEnt.pilot:GetPos():DistToSqr(longshipEnt:GetPos()) <= 250000) then
+			Schema:EasyText(caller, "maroon", "Someone else is already steering this "..longshipEnt.longshipType.."!");
+			return false;
+		else
+			longshipEnt.pilot = nil;
+		end;
+	end;
+
 	--printp("ent pos: "..tostring(longshipEntPos));
 	
 	if caller:GetCharacterKey() == longshipEnt.ownerID then
@@ -370,9 +491,13 @@ function cwSailing:BeginSailing(longshipEnt, destination, caller)
 
 		if IsValid(tr.Entity) and tr.Entity == longshipEnt then
 			if longshipEnt.CanMove then
-				if longshipEnt:CanMove() == false then return end;
+				if longshipEnt:CanMove() == false then
+					longshipEnt.pilot = nil;
+					return false;
+				end;
 			end
 			
+			longshipEnt.pilot = caller;
 			longshipEnt.destination = destination;
 			
 			local sail_time = 30;
@@ -438,6 +563,7 @@ function cwSailing:BeginSailing(longshipEnt, destination, caller)
 				
 				--printp("Owner not within AA box");
 				longshipEnt.destination = nil;
+				longshipEnt.pilot = nil;
 				--printp("sailing aborted!");
 				
 				Schema:EasyText(Schema:GetAdmins(), "icon16/anchor.png", "cornflowerblue", "Sailing aborted for "..longshipEnt.longshipType.." "..longshipEnt:EntIndex().."!");
@@ -448,6 +574,7 @@ function cwSailing:BeginSailing(longshipEnt, destination, caller)
 			if longshipEnt:CanMove() == false then return end;
 		end
 			
+		longshipEnt.pilot = caller;
 		longshipEnt.destination = destination;
 		
 		local sail_time = 30;
@@ -526,6 +653,8 @@ function cwSailing:MoveLongship(longshipEnt, location)
 			local steamEngine = longshipEnt.steamEngine;
 			
 			if !IsValid(steamEngine) or !steamEngine:GetNWBool("turnedOn") or !steamEngine.fuel or steamEngine.fuel <= 0 then
+				longshipEnt.pilot = nil;
+				longshipEnt.destination = nil;
 				return false;
 			end
 		end
@@ -549,6 +678,10 @@ function cwSailing:MoveLongship(longshipEnt, location)
 			
 			-- Cache positions of all players aboard the longship.
 			local longshipPlayers = {};
+			
+			if Clockwork.storage and Clockwork.storage.CloseEntity then
+				Clockwork.storage:CloseEntity(longshipEnt);
+			end;
 			
 			for _, player in _player.Iterator() do
 				if IsValid(player) then
@@ -590,6 +723,13 @@ function cwSailing:MoveLongship(longshipEnt, location)
 			timer.Simple(5, function()
 				if IsValid(longshipEnt) then
 					longshipEnt.playersOnBoard = {};
+					local ignore = {};
+					for _, pTab in ipairs(longshipPlayers) do
+						if IsValid(pTab[1]) then
+							ignore[pTab[1]] = true;
+						end
+					end
+					self:ClearDockZone(destination.pos, longshipEnt.longshipType == "ironclad" and 500 or 350, ignore);
 					longshipEnt:SetPos(destination.pos);
 					longshipEnt:SetAngles(longshipAngles);
 					longshipEnt:SetBodygroup(0, longshipBodygroup);
@@ -621,6 +761,7 @@ function cwSailing:MoveLongship(longshipEnt, location)
 					end
 					
 					longshipEnt.checkCooldown = CurTime() + 2;
+					longshipEnt.pilot = nil;
 					
 					local longshipNewPos = longshipEnt:GetPos();
 				
@@ -662,6 +803,7 @@ function cwSailing:MoveLongship(longshipEnt, location)
 													player:GodDisable(); -- Re-enable god mode.
 													player:Freeze(false);
 												end
+												player.cwNextFallDamage = CurTime() + 3;
 												
 												--[[print("Player Old Eye Angles: "..tostring(playerEyeAngles));
 												print("Longship Old Angles: "..tostring(longshipCurAngles));
@@ -1587,6 +1729,7 @@ concommand.Add("cw_AbortSailing", function(player, cmd, args)
 				if hook.Run("CanPlayerMoveLongship", entity, player) then
 					entity:SetBodygroup(0, 1);
 					entity.destination = nil;
+					entity.pilot = nil;
 					
 					timer.Remove("SailTimer_"..tostring(entity:EntIndex()));
 					
@@ -1616,6 +1759,7 @@ concommand.Add("cw_DockLongship", function(player, cmd, args)
 				end
 				
 				if entity.owner == player then
+					entity.pilot = nil;
 					entity:Remove();
 				else
 					Schema:EasyText(player, "maroon", "This "..entity.longshipType.." does not belong to you!");

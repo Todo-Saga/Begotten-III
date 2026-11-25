@@ -11,6 +11,7 @@ if cwWeather.Emitter2D then
 end
 
 function cwWeather:Think()
+	local curTime = CurTime();
 	local weather;
 	
 	if zones then
@@ -19,13 +20,22 @@ function cwWeather:Think()
 		if zoneTable then
 			if zoneTable.weatherOverride then
 				weather = zoneTable.weatherOverride;
+				self.weatherFadeTime = nil;
 			elseif !zoneTable.hasWeather then
 				if self.loopingAmbience then
-					self.loopingAmbience:FadeOut(2);
-					self.loopingAmbience = nil;
+					if !self.weatherFadeTime then
+						self.weatherFadeTime = curTime + 0.5;
+					elseif curTime >= self.weatherFadeTime then
+						self.loopingAmbience:FadeOut(2);
+						self.loopingAmbience = nil;
+						self.currentLoopingTrack = nil;
+						self.weatherFadeTime = nil;
+					end
 				end
 			
 				return;
+			else
+				self.weatherFadeTime = nil;
 			end
 		end
 	end
@@ -66,8 +76,6 @@ function cwWeather:Think()
 			local outside = self:IsOutside(viewPos);
 		
 			if weatherTable.ambience then
-				local curTime = CurTime();
-				
 				if !self.nextWeatherAmbience or self.nextWeatherAmbience < curTime then
 					self.nextWeatherAmbience = curTime + math.random(5, 10);
 				
@@ -84,8 +92,15 @@ function cwWeather:Think()
 			end
 			
 			if weatherTable.loopingAmbience then
+				if self.loopingAmbience and self.currentLoopingTrack ~= weatherTable.loopingAmbience then
+					self.loopingAmbience:FadeOut(2);
+					self.loopingAmbience = nil;
+					self.currentLoopingTrack = nil;
+				end
+
 				if !self.loopingAmbience then
 					self.loopingAmbience = CreateSound(Clockwork.Client, weatherTable.loopingAmbience);
+					self.currentLoopingTrack = weatherTable.loopingAmbience;
 					
 					if outside then
 						self.loopingAmbience:PlayEx(0.4, 100);
@@ -121,6 +136,8 @@ function cwWeather:Think()
 	if self.loopingAmbience then
 		self.loopingAmbience:FadeOut(2);
 		self.loopingAmbience = nil;
+		self.currentLoopingTrack = nil;
+		self.weatherFadeTime = nil;
 	end
 end
 
@@ -202,11 +219,20 @@ netstream.Hook("SetWeather", function(weather)
 	local weatherTable = cwWeather.weatherTypes[weather];
 	
 	if cwWeather.loopingAmbience then
-		if weatherTable.loopingAmbience and tostring(cwWeather.loopingAmbience) == "CSoundPatch ["..weatherTable.loopingAmbience.."]" then
+		if zones then
+			local zoneTable = zones.currentZoneTable or zones.cwDefaultZone;
+			if zoneTable and zoneTable.weatherOverride then
+				return;
+			end
+		end
+
+		if weatherTable and weatherTable.loopingAmbience and cwWeather.currentLoopingTrack == weatherTable.loopingAmbience then
 			return;
 		end
 		
 		cwWeather.loopingAmbience:FadeOut(2);
 		cwWeather.loopingAmbience = nil;
+		cwWeather.currentLoopingTrack = nil;
+		cwWeather.weatherFadeTime = nil;
 	end
 end);

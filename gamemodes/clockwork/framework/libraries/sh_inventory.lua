@@ -7,6 +7,22 @@
 
 library.New("inventory", Clockwork)
 
+local inventoryVersions = setmetatable({}, { __mode = "k" })
+
+local function BumpInventoryVersion(inventory)
+	if (inventory) then
+		inventoryVersions[inventory] = (inventoryVersions[inventory] or 0) + 1
+	end
+end
+
+function Clockwork.inventory:BumpVersion(inventory)
+	BumpInventoryVersion(inventory)
+end
+
+function Clockwork.inventory:GetVersion(inventory)
+	return (inventory and inventoryVersions[inventory]) or 0
+end
+
 -- A function to add an instance to a table.
 function Clockwork.inventory:AddInstance(inventory, itemTable, quantity)
 	quantity = quantity or 1
@@ -25,6 +41,7 @@ function Clockwork.inventory:AddInstance(inventory, itemTable, quantity)
 	end
 
 	inventory[itemTable.uniqueID][itemTable.itemID] = itemTable
+	BumpInventoryVersion(inventory)
 
 	if (quantity != 1) then
 		self:AddInstance(inventory, item.CreateInstance(itemTable.uniqueID), quantity - 1)
@@ -243,6 +260,7 @@ function Clockwork.inventory:RemoveInstance(inventory, itemTable)
 
 	if (inventory[itemTable.uniqueID]) then
 		inventory[itemTable.uniqueID][itemTable.itemID] = nil
+		BumpInventoryVersion(inventory)
 
 		if(table.Count(inventory[itemTable.uniqueID]) <= 0) then inventory[itemTable.uniqueID] = nil end
 
@@ -261,10 +279,12 @@ function Clockwork.inventory:RemoveUniqueID(inventory, uniqueID, itemID)
 
 			if (firstValue) then
 				inventory[itemTable.uniqueID][firstValue.itemID] = nil
+				BumpInventoryVersion(inventory)
 				return item.FindInstance(firstValue.itemID)
 			end
 		else
 			inventory[itemTable.uniqueID][itemID] = nil
+			BumpInventoryVersion(inventory)
 		end
 	end
 end

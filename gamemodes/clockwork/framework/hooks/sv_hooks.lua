@@ -257,7 +257,17 @@ function GM:PlayerThink(player, curTime, infoTable, alive, initialized, plyTab)
 	end;]]--
 	
 	if !plyTab.nextInvThink or plyTab.nextInvThink <= curTime then
-		infoTable.inventoryWeight = Clockwork.inventory:CalculateWeight(player:GetInventory());
+		local inv = player:GetInventory();
+		local invVer = Clockwork.inventory:GetVersion(inv);
+
+		if plyTab._cwLastInv ~= inv or plyTab._cwLastInvVer ~= invVer or (plyTab._cwNextInvFullCheck or 0) <= curTime then
+			plyTab._cwCachedInvWeight = Clockwork.inventory:CalculateWeight(inv);
+			plyTab._cwLastInv = inv;
+			plyTab._cwLastInvVer = invVer;
+			plyTab._cwNextInvFullCheck = curTime + 1;
+		end;
+
+		infoTable.inventoryWeight = plyTab._cwCachedInvWeight;
 		infoTable.maxWeight = player:GetMaxWeight()
 		
 		--player:SetLocalVar("InvWeight", math.ceil(infoTable.inventoryWeight))
@@ -821,7 +831,7 @@ function GM:SetupMove(player, moveData)
 	local plyTable = player:GetTable();
 	
 	if (plyTable.disableMovement) then
-		moveData:SetVelocity(Vector(0, 0, 0));
+		moveData:SetVelocity(vector_origin);
 		return;
 	end;
 	
@@ -1109,11 +1119,7 @@ function GM:PlayerSetHandsModel(player, entity)
 		local clothesItem = player:GetClothesEquipped();
 
 		if clothesItem and clothesItem.group then
-			if clothesItem.genderless then
-				model = "models/begotten/"..clothesItem.group..".mdl";
-			else
-				model = "models/begotten/"..clothesItem.group.."_"..string.lower(player:GetGender())..".mdl";
-			end
+			model = Clockwork.item:GetClothesModel(clothesItem, player:GetGender());
 		else
 			local faction = player:GetNetVar("kinisgerOverride") or player:GetFaction();
 			local factionTable = Clockwork.faction:FindByID(faction);
@@ -1208,12 +1214,41 @@ end
 
 -- Called when the Clockwork data is saved.
 function GM:SaveData()
-	for _, v in _player.Iterator() do
-		if (v:HasInitialized()) then
-			if hook.Run("CanSaveCharacter", v) ~= false then
-				v:SaveCharacter()
+	local bSqlite = (Clockwork.database and Clockwork.database.Module == "sqlite");
+	local bStartedTx = false;
+	if (bSqlite and not Clockwork.database._cwInTx) then
+		if (sql.Begin() ~= false) then
+			Clockwork.database._cwInTx = true;
+			bStartedTx = true;
+		end;
+	end;
+
+	local ok, err = xpcall(function()
+		for _, v in _player.Iterator() do
+			if (v:HasInitialized()) then
+				if hook.Run("CanSaveCharacter", v) ~= false then
+					local charOk, charErr = xpcall(v.SaveCharacter, debug.traceback, v);
+					if (!charOk) then
+						ErrorNoHalt("[Clockwork:SaveData] Error saving character for " .. tostring(v) .. ":\n" .. tostring(charErr) .. "\n");
+					end;
+				end
 			end
 		end
+	end, debug.traceback);
+
+	if (bStartedTx) then
+		if (ok) then
+			if (sql.Commit() == false) then
+				sql.Query("ROLLBACK");
+				ErrorNoHalt("[Clockwork:SaveData] sql.Commit failed: " .. tostring(sql.LastError()) .. "\n");
+			end;
+		else
+			sql.Query("ROLLBACK");
+			ErrorNoHalt("[Clockwork:SaveData] Save loop aborted:\n" .. tostring(err) .. "\n");
+		end;
+		Clockwork.database._cwInTx = false;
+	elseif (!ok) then
+		ErrorNoHalt("[Clockwork:SaveData] Save loop error:\n" .. tostring(err) .. "\n");
 	end;
 
 	if (!config.GetVal("use_local_machine_time")) then
@@ -1725,7 +1760,11 @@ function GM:OneSecond()
 		Clockwork.NextSaveData = sysTime + config.Get("save_data_interval"):Get()
 	elseif (!Clockwork.NextSaveItemIDs or sysTime >= Clockwork.NextSaveItemIDs) then
 		-- This is too important not to save every few seconds, otherwise items can spawn with the item IDs of existing items and that's no good!
-		Clockwork.kernel:SaveSchemaData("itemIndex", {ITEM_INDEX});
+		-- Dirty-track ITEM_INDEX to avoid synchronous disk I/O every 5s when no items spawned
+		if (Clockwork.lastSavedItemIndex ~= ITEM_INDEX) then
+			Clockwork.kernel:SaveSchemaData("itemIndex", {ITEM_INDEX});
+			Clockwork.lastSavedItemIndex = ITEM_INDEX;
+		end
 		
 		Clockwork.NextSaveItemIDs = sysTime + 5;
 	end
@@ -1745,52 +1784,58 @@ function GM:OneSecond()
 end
 
 do
-	local cwNextThink = 0
-	local cwNextSecond = 0
-	local cwNextHalfSecond = 0;
 	cwThinkRate = 0.2;
 
+	local function RefreshInfoTable(player, plyTab, infoTable)
+		if (infoTable) then
+			infoTable.crouchedSpeed = plyTab.cwCrouchedSpeed
+			infoTable.jumpPower = plyTab.cwJumpPower
+			infoTable.walkSpeed = plyTab.cwWalkSpeed
+			infoTable.isRunning = player:IsRunning()
+			infoTable.isJumping = player:IsJumping()
+			infoTable.runSpeed = plyTab.cwRunSpeed
+			infoTable.waterLevel = player:WaterLevel()
+		end
+	end
+
+	local cwNextThink = 0
+	local cwNextSecond = 0
+	local cwNextHalfSecond = 0
+
 	-- Called each tick.
+	-- Batched like base: every player thinks in one pass every cwThinkRate seconds.
+	-- (Per-player staggering was measured to cost ~+9 ms/s at 60 players in combat.)
 	function GM:Tick()
 		local curTime = CurTime()
+		if (curTime < cwNextThink) then return end
 
-		if (curTime >= cwNextThink) then
-			for _, player in _player.Iterator() do
-				local initialized = player:HasInitialized();
+		cwNextThink = curTime + cwThinkRate
+		local doSecond = curTime >= cwNextSecond
+		local doHalfSecond = curTime >= cwNextHalfSecond
+		if (doSecond) then cwNextSecond = curTime + 1 end
+		if (doHalfSecond) then cwNextHalfSecond = curTime + 0.5 end
 
-				if (initialized) then
-					local alive = player:Alive();
-					local plyTab = player:GetTable();
-					local infoTable = plyTab.cwInfoTable;
+		for _, player in _player.Iterator() do
+			local initialized = player:HasInitialized()
+			if (initialized) then
+				local plyTab = player:GetTable()
+				local alive = player:Alive()
+				local infoTable = plyTab.cwInfoTable
+				RefreshInfoTable(player, plyTab, infoTable)
 
-					infoTable.crouchedSpeed = plyTab.cwCrouchedSpeed
-					infoTable.jumpPower = plyTab.cwJumpPower
-					infoTable.walkSpeed = plyTab.cwWalkSpeed
-					infoTable.isRunning = player:IsRunning()
-					infoTable.isJumping = player:IsJumping()
-					infoTable.runSpeed = plyTab.cwRunSpeed
-					infoTable.waterLevel = player:WaterLevel();
+				hook.Run("PlayerThink", player, curTime, infoTable, alive, initialized, plyTab)
+				if not IsValid(player) then continue end
 
-					hook.Run("PlayerThink", player, curTime, infoTable, alive, initialized, plyTab)
-
-					if (curTime >= cwNextSecond) then
-						hook.Run("OnePlayerSecond", player, curTime, infoTable, alive, initialized, plyTab)
-					end
-					
-					if (curTime >= cwNextHalfSecond) then
-						hook.Run("OnePlayerHalfSecond", player, curTime, infoTable, alive, initialized, plyTab)
-					end
+				if (doSecond) then
+					alive = player:Alive()
+					hook.Run("OnePlayerSecond", player, curTime, infoTable, alive, initialized, plyTab)
+					if not IsValid(player) then continue end
 				end
-			end
 
-			cwNextThink = curTime + cwThinkRate
-
-			if (curTime >= cwNextSecond) then
-				cwNextSecond = curTime + 1
-			end
-			
-			if (curTime >= cwNextHalfSecond) then
-				cwNextHalfSecond = curTime + 0.5
+				if (doHalfSecond) then
+					alive = player:Alive()
+					hook.Run("OnePlayerHalfSecond", player, curTime, infoTable, alive, initialized, plyTab)
+				end
 			end
 		end
 	end
@@ -2120,9 +2165,17 @@ function GM:PlayerUnragdolled(player, state, ragdoll)
 end
 
 -- Called to check if a player does have a flag.
+local defaultFlagsCfg
 function GM:PlayerDoesHaveFlag(player, flag)
-	if (string.find(config.Get("default_flags"):Get(), flag)) then
-		return true
+	if (not flag or flag == "") then return end
+	if (!defaultFlagsCfg or not defaultFlagsCfg:IsValid()) then
+		defaultFlagsCfg = config.Get("default_flags")
+	end
+	if (defaultFlagsCfg and defaultFlagsCfg:IsValid()) then
+		local def = defaultFlagsCfg:Get()
+		if (def and #def > 0 and string.find(def, flag, 1, true)) then
+			return true
+		end
 	end
 end
 
@@ -3804,6 +3857,11 @@ function GM:ShutDown()
 	Clockwork.kernel:PrintLog(LOGTYPE_CRITICAL, "Server shutting down!");
 	Clockwork.kernel:ProcessSaveData(true);
 	Clockwork.ShuttingDown = true
+	Clockwork.kernel:FlushServerLogs();
+
+	if (Clockwork.database and Clockwork.database.Module == "sqlite" and sql) then
+		sql.Query("PRAGMA wal_checkpoint(TRUNCATE);");
+	end;
 end
 
 -- Called when a player presses F1.
@@ -3977,7 +4035,9 @@ function GM:EntityTakeDamage(entity, damageInfo)
 	
 	local isPlayerRagdoll = Clockwork.entity:IsPlayerRagdoll(entity);
 	local player = Clockwork.entity:GetPlayer(entity);
+	local prevHitGroup = IsValid(player) and player._cwDmgHitGroup or nil;
 	local lastHitGroup;
+	if (IsValid(player)) then player._cwDmgHitGroup = nil; end;
 	
 	if isPlayerRagdoll and hook.Run("PlayerRagdollCanTakeDamage", player, entity, inflictor, attacker, hitGroup, damageInfo) == false then
 		damageInfo:SetDamage(0)
@@ -4001,6 +4061,9 @@ function GM:EntityTakeDamage(entity, damageInfo)
 			)
 		--end
 
+		local dmgHitGroup = player._cwDmgHitGroup;
+		player._cwDmgHitGroup = prevHitGroup;
+
 		if (!isPlayerRagdoll) then
 			local lastHitGroup = player:LastHitGroup()
 			
@@ -4008,7 +4071,11 @@ function GM:EntityTakeDamage(entity, damageInfo)
 				local activeWeapon = attacker:GetActiveWeapon();
 				
 				if activeWeapon:IsValid() and activeWeapon.Base == "sword_swepbase" then
-					lastHitGroup = Clockwork.kernel:GetRagdollHitGroup(entity, damageInfo:GetDamagePosition());
+					if (dmgHitGroup ~= nil) then
+						lastHitGroup = dmgHitGroup;
+					else
+						lastHitGroup = Clockwork.kernel:GetRagdollHitGroup(entity, damageInfo:GetDamagePosition());
+					end
 				end
 			end
 
@@ -4501,15 +4568,15 @@ function GM:RunModifyPlayerSpeed(player, infoTable, bIgnoreDelay)
 
 		hook.Run("ModifyPlayerSpeed", player, infoTable, action);
 		
-		player:SetWalkSpeed(math.max(infoTable.walkSpeed, 1));
-		player:SetCrouchedWalkSpeed(math.max(infoTable.crouchedWalkSpeed, 1));
-		player:SetJumpPower(math.max(infoTable.jumpPower, 1));
-		
-		if (player:KeyDown(IN_BACK)) then
-			player:SetRunSpeed(infoTable.walkSpeed);
-		else
-			player:SetRunSpeed(infoTable.runSpeed);
-		end;
+		local targetWalk = math.max(infoTable.walkSpeed, 1);
+		local targetCrouched = math.max(infoTable.crouchedWalkSpeed, 1);
+		local targetJump = math.max(infoTable.jumpPower, 1);
+		local targetRun = (player:KeyDown(IN_BACK)) and targetWalk or infoTable.runSpeed;
+
+		if (math.abs(player:GetWalkSpeed() - targetWalk) > 0.01) then player:SetWalkSpeed(targetWalk); end
+		if (math.abs(player:GetCrouchedWalkSpeed() - targetCrouched) > 0.01) then player:SetCrouchedWalkSpeed(targetCrouched); end
+		if (math.abs(player:GetJumpPower() - targetJump) > 0.01) then player:SetJumpPower(targetJump); end
+		if (math.abs(player:GetRunSpeed() - targetRun) > 0.01) then player:SetRunSpeed(targetRun); end
 		
 		player.speedSetCooldown = curTime + 0.1;
 	end;

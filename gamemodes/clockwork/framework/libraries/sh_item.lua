@@ -789,6 +789,7 @@ if (SERVER) then
 		
 		if (itemTable:IsInstance() and itemTable.data[dataName] != nil and (itemTable.data[dataName] != value or istable(itemTable.data[dataName]) or dataName == "Ammo")) then
 			itemTable.data[dataName] = value;
+			itemTable._cwDataRev = (itemTable._cwDataRev or 0) + 1;
 			
 			if itemTable ~= self then
 				self.data[dataName] = value;
@@ -1137,6 +1138,53 @@ function item.FindByID(identifier)
 	end;
 end;
 
+-- A function to resolve a valid clothes model with automatic fallbacks for missing gender variants.
+local validModelCache = {};
+function item.IsValidModelCached(modelPath)
+	if not modelPath or type(modelPath) ~= "string" then return false end;
+	local cached = validModelCache[modelPath];
+	if cached ~= nil then return cached end;
+	local isValid;
+	if CLIENT then
+		isValid = (string.sub(string.lower(modelPath), -4) == ".mdl") and file.Exists(modelPath, "GAME") or false;
+	else
+		isValid = util.IsValidModel(modelPath);
+	end;
+	if isValid or SERVER then
+		validModelCache[modelPath] = isValid;
+	end;
+	return isValid;
+end;
+local IsValidModelCached = item.IsValidModelCached;
+
+function item.GetClothesModel(clothesItem, gender)
+	if not (clothesItem and clothesItem.group) then return nil end;
+
+	local model;
+	if clothesItem.genderless then
+		model = "models/begotten/"..clothesItem.group..".mdl";
+	else
+		local targetGender = string.lower(gender or "male");
+		model = "models/begotten/"..clothesItem.group.."_"..targetGender..".mdl";
+	end;
+
+	if not IsValidModelCached(model) then
+		local maleFallback = "models/begotten/"..clothesItem.group.."_male.mdl";
+		if maleFallback ~= model and IsValidModelCached(maleFallback) then
+			return maleFallback;
+		end;
+		local genderlessFallback = "models/begotten/"..clothesItem.group..".mdl";
+		if genderlessFallback ~= model and IsValidModelCached(genderlessFallback) then
+			return genderlessFallback;
+		end;
+		return (string.lower(gender or "") == "female" and IsValidModelCached("models/begotten/wanderers/wanderer_female.mdl"))
+			and "models/begotten/wanderers/wanderer_female.mdl"
+			or "models/begotten/wanderers/wanderer_male.mdl";
+	end;
+
+	return model;
+end;
+
 -- A function to merge an item with a base item.
 function item.Merge(itemTable, baseItem, bTemporary)
 	local baseTable = item.FindByID(baseItem);
@@ -1358,11 +1406,41 @@ if (SERVER) then
 		@details A function to send an item to a player.
 	--]]
 	function item.SendToPlayer(player, itemTable)
-		if (itemTable) then
+		if (itemTable and ((istable(player) and #player > 0) or IsValid(player))) then
 			netstream.Start(
 				player, "ItemData", item.GetDefinition(itemTable, true)
 			);
 		end;
+	end;
+
+	-- Syncs a weapon SWEP's ItemID/definition to its owner.
+	function item.SyncWeaponEntity(weapon, player)
+		if not (IsValid(weapon) and IsValid(player) and player:IsPlayer()) then
+			return 5;
+		end;
+
+		local nwItemID = weapon:GetNWInt("ItemID");
+		local cached = weapon.cwItemTable;
+		local cachedInstance = (cached and cached.itemID and (nwItemID == 0 or nwItemID == cached.itemID)) and item.FindInstance(cached.itemID) or nil;
+		local itemTable = cachedInstance or item.GetByWeapon(weapon);
+
+		if not itemTable then
+			return math.random(1, 5);
+		end;
+
+		weapon.cwItemTable = itemTable;
+
+		if nwItemID ~= itemTable.itemID then
+			weapon:SetNWInt("ItemID", itemTable.itemID);
+		end;
+
+		-- Unconditional resend every 1-5s (base "last ditch" clientside itemtable desync fix).
+		netstream.Start(player, "WeaponItemData", {
+			definition = item.GetDefinition(itemTable, true),
+			weapon = weapon:EntIndex()
+		});
+
+		return math.random(1, 5);
 	end;
 	
 	--[[

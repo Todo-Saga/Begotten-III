@@ -1231,28 +1231,51 @@ function Clockwork.player:GiveSpawnItemWeapon(player, itemTable)
 	end
 end
 
+-- A function to check if a player has initialized their character.
+function Clockwork.player:HasInitialized(player)
+	return IsValid(player) and player:HasInitialized()
+end
+
 -- A function to give flags to a character.
 function Clockwork.player:GiveFlags(player, flags)
-	for i = 1, #flags do
+	if (!IsValid(player) or type(flags) ~= "string" or flags == "") then return end
+
+	local curFlags = player:GetFlags() or ""
+	local changedFlags = {}
+	local len = string.utf8len(flags) or #flags
+	for i = 1, len do
 		local flag = string.utf8sub(flags, i, i)
-
-		if (!string.find(player:GetFlags(), flag)) then
-			player:SetCharacterData("Flags", player:GetFlags()..flag, true)
-
-			hook.Run("PlayerFlagsGiven", player, flag)
+		if (flag and flag ~= "" and !string.find(curFlags, flag, 1, true)) then
+			curFlags = curFlags..flag
+			changedFlags[#changedFlags + 1] = flag
+		end
+	end
+	if #changedFlags > 0 then
+		player:SetCharacterData("Flags", curFlags, true)
+		for i = 1, #changedFlags do
+			hook.Run("PlayerFlagsGiven", player, changedFlags[i])
 		end
 	end
 end
 
 -- A function to give flags to a player.
 function Clockwork.player:GivePlayerFlags(player, flags)
-	for i = 1, #flags do
+	if (!IsValid(player) or type(flags) ~= "string" or flags == "") then return end
+
+	local curFlags = player:GetPlayerFlags() or ""
+	local changedFlags = {}
+	local len = string.utf8len(flags) or #flags
+	for i = 1, len do
 		local flag = string.utf8sub(flags, i, i)
-
-		if (!string.find(player:GetPlayerFlags(), flag)) then
-			player:SetData("Flags", player:GetPlayerFlags()..flag, true)
-
-			hook.Run("PlayerFlagsGiven", player, flag)
+		if (flag and flag ~= "" and !string.find(curFlags, flag, 1, true)) then
+			curFlags = curFlags..flag
+			changedFlags[#changedFlags + 1] = flag
+		end
+	end
+	if #changedFlags > 0 then
+		player:SetData("Flags", curFlags, true)
+		for i = 1, #changedFlags do
+			hook.Run("PlayerFlagsGiven", player, changedFlags[i])
 		end
 	end
 end
@@ -1408,26 +1431,44 @@ end
 
 -- A function to take flags from a character.
 function Clockwork.player:TakeFlags(player, flags)
-	for i = 1, #flags do
+	if (!IsValid(player) or type(flags) ~= "string" or flags == "") then return end
+
+	local curFlags = player:GetFlags() or ""
+	local changedFlags = {}
+	local len = string.utf8len(flags) or #flags
+	for i = 1, len do
 		local flag = string.utf8sub(flags, i, i)
-
-		if (string.find(player:GetFlags(), flag)) then
-			player:SetCharacterData("Flags", string.gsub(player:GetFlags(), flag, ""), true)
-
-			hook.Run("PlayerFlagsTaken", player, flag)
+		if (flag and flag ~= "" and string.find(curFlags, flag, 1, true)) then
+			curFlags = string.gsub(curFlags, string.PatternSafe(flag), "")
+			changedFlags[#changedFlags + 1] = flag
+		end
+	end
+	if #changedFlags > 0 then
+		player:SetCharacterData("Flags", curFlags, true)
+		for i = 1, #changedFlags do
+			hook.Run("PlayerFlagsTaken", player, changedFlags[i])
 		end
 	end
 end
 
 -- A function to take flags from a player.
 function Clockwork.player:TakePlayerFlags(player, flags)
-	for i = 1, #flags do
+	if (!IsValid(player) or type(flags) ~= "string" or flags == "") then return end
+
+	local curFlags = player:GetPlayerFlags() or ""
+	local changedFlags = {}
+	local len = string.utf8len(flags) or #flags
+	for i = 1, len do
 		local flag = string.utf8sub(flags, i, i)
-
-		if (string.find(player:GetPlayerFlags(), flag)) then
-			player:SetData("Flags", string.gsub(player:GetFlags(), flag, ""), true)
-
-			hook.Run("PlayerFlagsTaken", player, flag)
+		if (flag and flag ~= "" and string.find(curFlags, flag, 1, true)) then
+			curFlags = string.gsub(curFlags, string.PatternSafe(flag), "")
+			changedFlags[#changedFlags + 1] = flag
+		end
+	end
+	if #changedFlags > 0 then
+		player:SetData("Flags", curFlags, true)
+		for i = 1, #changedFlags do
+			hook.Run("PlayerFlagsTaken", player, changedFlags[i])
 		end
 	end
 end
@@ -2644,11 +2685,7 @@ function Clockwork.player:SetRagdollState(player, state, delay, decay, force, mu
 				local clothesItem = player:GetClothesEquipped();
 
 				if clothesItem and clothesItem.group then
-					if clothesItem.genderless then
-						model = "models/begotten/"..clothesItem.group..".mdl";
-					else
-						model = "models/begotten/"..clothesItem.group.."_"..string.lower(player:GetGender())..".mdl";
-					end
+					model = Clockwork.item:GetClothesModel(clothesItem, player:GetGender());
 				else
 					local faction = player:GetNetVar("kinisgerOverride") or player:GetFaction();
 					local factionTable = Clockwork.faction:FindByID(faction);
@@ -2671,8 +2708,15 @@ function Clockwork.player:SetRagdollState(player, state, delay, decay, force, mu
 						end
 					end
 				end
+
+				if (model and not Clockwork.item:IsValidModelCached(model)) then
+					local femaleMdl = "models/begotten/wanderers/wanderer_female.mdl";
+					model = (player:GetGender() == GENDER_FEMALE and Clockwork.item:IsValidModelCached(femaleMdl)) and femaleMdl or "models/begotten/wanderers/wanderer_male.mdl";
+				end;
 				
-				ragdoll:SetNW2String("clothes", model);
+				if (model) then
+					ragdoll:SetNW2String("clothes", model);
+				end;
 			end
 
 			player.cwRagdollTab = {}
@@ -3461,19 +3505,34 @@ function Clockwork.player:SaveCharacter(player, bCreate, character, Callback)
 			end
 
 			queryObj:Callback(function(result)
+				local insertedKey = (result ~= false and Clockwork.database and Clockwork.database.Module == "sqlite" and sql and tonumber(sql.QueryValue("SELECT changes()")) == 1) and tonumber(sql.QueryValue("SELECT last_insert_rowid()")) or nil;
+
+				if (insertedKey and insertedKey > 0) then
+					character.key = insertedKey;
+					if (character.data and not character.data["Key"]) then
+						character.data["Key"] = insertedKey;
+					end;
+					if (Callback) then
+						Callback(insertedKey);
+					end;
+					return;
+				end;
+
 				if (Callback) then
 					local oldCallback = Callback;
 					local selectObj = Clockwork.database:Select(charactersTable)
 					
-						selectObj:Callback(function(result)
-							if result then
-								for k, v in pairs(result) do
+						selectObj:Callback(function(selectResult)
+							if selectResult then
+								for k, v in pairs(selectResult) do
 									if v._Key then
-										if not character.data["Key"] then
-											character.data["Key"] = v._Key;
-										end
+										local keyNum = tonumber(v._Key);
+										character.key = keyNum;
+										if (character.data and not character.data["Key"]) then
+											character.data["Key"] = keyNum;
+										end;
 										
-										oldCallback(v._Key);
+										oldCallback(keyNum);
 										
 										break;
 									end
@@ -3502,40 +3561,67 @@ function Clockwork.player:SaveCharacter(player, bCreate, character, Callback)
 			character.subfaith = player:GetSubfaith() or "N/A";
 		end
 
-		local queryObj = Clockwork.database:Update(charactersTable)
-			queryObj:Where("_Schema", schemaFolder)
-			queryObj:Where("_SteamID", steamID)
-			queryObj:Where("_CharacterID", character.characterID)
-			queryObj:Update("_RecognisedNames", self:GetCharacterRecognisedNamesString(player, character))
-			queryObj:Update("_Attributes", util.TableToJSON(character.attributes))
-			queryObj:Update("_Traits", util.TableToJSON(character.traits))
-			queryObj:Update("_LastPlayed", unixTime)
-			queryObj:Update("_SteamName", player:SteamName())
-			queryObj:Update("_Faction", character.faction)
-			queryObj:Update("_Subfaction", character.subfaction)
-			queryObj:Update("_Faith", character.faith)
-			queryObj:Update("_Subfaith", character.subfaith)
-			queryObj:Update("_Gender", character.gender)
-			queryObj:Update("_Schema", character.schema)
-			queryObj:Update("_Model", character.model)
-			queryObj:Update("_Skin", character.skin)
-			queryObj:Update("_Flags", character.flags)
-			queryObj:Update("_Cash", character.cash)
-			queryObj:Update("_Name", character.name)
-
-			if (currentCharacter == character) then
-				queryObj:Update("_Inventory", self:GetCharacterInventoryString(player, character))
-				---queryObj:Update("_Ammo", self:GetCharacterAmmoString(player, character))
-				queryObj:Update("_Data", self:GetCharacterDataString(player, character))
+		local bOwnTx = (Clockwork.database and Clockwork.database.Module == "sqlite" and not Clockwork.database._cwInTx);
+		if (bOwnTx) then
+			if (sql.Begin() ~= false) then
+				Clockwork.database._cwInTx = true;
 			else
-				queryObj:Update("_Inventory", util.TableToJSON(Clockwork.inventory:ToSaveable(character.inventory)))
-				--queryObj:Update("_Ammo", util.TableToJSON(character.ammo))
-				queryObj:Update("_Data", util.TableToJSON(character.data))
-			end
-		queryObj:Execute()
+				bOwnTx = false;
+			end;
+		end;
 
-		--[[ Save the player's data after pushing the update. --]]
-		self:SaveData(player)
+		local ok, err = xpcall(function()
+			local queryObj = Clockwork.database:Update(charactersTable)
+				queryObj:Where("_Schema", schemaFolder)
+				queryObj:Where("_SteamID", steamID)
+				queryObj:Where("_CharacterID", character.characterID)
+				queryObj:Update("_RecognisedNames", self:GetCharacterRecognisedNamesString(player, character))
+				queryObj:Update("_Attributes", util.TableToJSON(character.attributes))
+				queryObj:Update("_Traits", util.TableToJSON(character.traits))
+				queryObj:Update("_LastPlayed", unixTime)
+				queryObj:Update("_SteamName", player:SteamName())
+				queryObj:Update("_Faction", character.faction)
+				queryObj:Update("_Subfaction", character.subfaction)
+				queryObj:Update("_Faith", character.faith)
+				queryObj:Update("_Subfaith", character.subfaith)
+				queryObj:Update("_Gender", character.gender)
+				queryObj:Update("_Schema", character.schema)
+				queryObj:Update("_Model", character.model)
+				queryObj:Update("_Skin", character.skin)
+				queryObj:Update("_Flags", character.flags)
+				queryObj:Update("_Cash", character.cash)
+				queryObj:Update("_Name", character.name)
+
+				if (currentCharacter == character) then
+					queryObj:Update("_Inventory", self:GetCharacterInventoryString(player, character))
+					---queryObj:Update("_Ammo", self:GetCharacterAmmoString(player, character))
+					queryObj:Update("_Data", self:GetCharacterDataString(player, character))
+				else
+					queryObj:Update("_Inventory", util.TableToJSON(Clockwork.inventory:ToSaveable(character.inventory)))
+					--queryObj:Update("_Ammo", util.TableToJSON(character.ammo))
+					queryObj:Update("_Data", util.TableToJSON(character.data))
+				end
+			queryObj:Execute()
+
+			--[[ Save the player's data after pushing the update. --]]
+			self:SaveData(player)
+		end, debug.traceback);
+
+		if (bOwnTx) then
+			if (ok) then
+				if (sql.Commit() == false) then
+					sql.Query("ROLLBACK");
+					ErrorNoHalt("[Clockwork:SaveCharacter] sql.Commit failed: " .. tostring(sql.LastError()) .. "\n");
+				end;
+			else
+				sql.Query("ROLLBACK");
+			end;
+			Clockwork.database._cwInTx = false;
+		end;
+
+		if (!ok) then
+			ErrorNoHalt("[Clockwork:SaveCharacter] SQL error:\n" .. tostring(err) .. "\n");
+		end;
 	end
 end
 

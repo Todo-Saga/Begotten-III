@@ -53,14 +53,7 @@ local ITEM = item.New(nil, true);
 				local ragdollEntity = player:GetRagdollEntity();
 				
 				if IsValid(ragdollEntity) and player:Alive() then
-					local model;
-					
-					if self.genderless then
-						model = "models/begotten/"..self.group..".mdl";
-					else
-						model = "models/begotten/"..self.group.."_"..string.lower(player:GetGender())..".mdl";
-					end
-					
+					local model = Clockwork.item:GetClothesModel(self, player:GetGender());
 					ragdollEntity:SetNW2String("clothes", model);
 				end
 			end

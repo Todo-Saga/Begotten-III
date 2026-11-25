@@ -14,6 +14,8 @@ local playerMeta = FindMetaTable("Player")
 
 local stored = {}
 local globals = {}
+-- Keys set through SetLocalVar, per player. These are private to that player and must not go out in join snapshots.
+local localKeys = setmetatable({}, {__mode = "k"})
 
 util.AddNetworkString("nVar")
 util.AddNetworkString("nDel")
@@ -68,26 +70,38 @@ function netvars.AreEqual(old, new)
 end
 
 function playerMeta:SyncVars()
+	if (not IsValid(self)) then return end
+
+	local syncTable = {}
+
 	for entity, data in pairs(stored) do
-		if (IsValid(entity)) then
-			for k, v in pairs(data) do
-				--netstream.Start(self, "nVar", entity:EntIndex(), k, v)
-				net.Start("nVar")
-					net.WriteUInt(entity:EntIndex(), 14);
-					net.WriteString(k)
-					net.WriteType(v)
-				net.Send(self)
+		if (not IsValid(entity)) then
+			stored[entity] = nil
+			localKeys[entity] = nil
+		elseif (next(data) ~= nil) then
+			local private = (entity ~= self) and localKeys[entity]
+
+			if (private and next(private) ~= nil) then
+				local public = {}
+
+				for k, v in pairs(data) do
+					if (not private[k]) then
+						public[k] = v
+					end
+				end
+
+				if (next(public) ~= nil) then
+					syncTable[#syncTable + 1] = {entity:EntIndex(), public}
+				end
+			else
+				syncTable[#syncTable + 1] = {entity:EntIndex(), data}
 			end
 		end
 	end
 
-	for k, v in pairs(globals) do
-		--netstream.Start(self, "gVar", k, v)
-		net.Start("gVar")
-			net.WriteString(k)
-			net.WriteType(v)
-		net.Send(self)
-	end
+	--netstream.Start(self, "gVar", k, v)
+	netstream.Heavy(self, "nVarsSync", syncTable)
+	netstream.Heavy(self, "gVarsSync", globals)
 end
 
 function entityMeta:SendNetVar(key, receiver)
@@ -106,11 +120,16 @@ function entityMeta:SendNetVar(key, receiver)
 end
 
 function entityMeta:ClearNetVars(receiver)
+	localKeys[self] = nil
+
 	if stored[self] then
 		stored[self] = nil
+		local idx = self:EntIndex()
+		if (idx < 0 or idx >= 16384) then return end
+
 		--netstream.Start(receiver, "nDel", self:EntIndex())
 		net.Start("nDel")
-			net.WriteEntity(self)
+			net.WriteUInt(idx, 14)
 			
 		if receiver then
 			net.Send(receiver)
@@ -123,7 +142,13 @@ end
 
 function entityMeta:SetNetVar(key, value, receiver)
 	if (checkBadType(key, value)) then return end
-	if (!istable(value) and value == self:GetNetVar(key)) then return end
+	-- Compare against the raw stored value: GetNetVar uses `or default`, so a stored false read back as nil and was resent every call.
+	if (!istable(value) and stored[self] and stored[self][key] == value) then return end
+	if (value == nil and (not stored[self] or stored[self][key] == nil)) then return end
+
+	if (localKeys[self]) then
+		localKeys[self][key] = nil
+	end
 
 	stored[self] = stored[self] or {}
 	stored[self][key] = value
@@ -139,7 +164,11 @@ function entityMeta:SetLocalVar(key, value)
 	end
 
 	if (checkBadType(key, value)) then return end
-	if (!istable(value) and value == self:GetNetVar(key)) then return end
+	if (!istable(value) and stored[self] and stored[self][key] == value) then return end
+	if (value == nil and (not stored[self] or stored[self][key] == nil)) then return end
+
+	localKeys[self] = localKeys[self] or {}
+	localKeys[self][key] = true
 
 	stored[self] = stored[self] or {}
 	stored[self][key] = value

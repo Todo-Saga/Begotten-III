@@ -226,11 +226,20 @@ function ENT:Think()
 						end
 					
 						if playerPos.z <= self:GetPos().z + offset then
-							if !table.HasValue(zones:GetPlayersInZone("sea_"..self.location), player) then
+							if not (zones and table.HasValue(zones:GetPlayersInZone("sea_"..self.location), player)) then
+								if self.overboardSince then self.overboardSince[player] = nil; end;
 								table.remove(self.playersOnBoard, i);
 								
 								break;
 							end
+
+							self.overboardSince = self.overboardSince or {};
+							if not self.overboardSince[player] then
+								self.overboardSince[player] = CurTime();
+								continue;
+							elseif (CurTime() - self.overboardSince[player]) < 0.5 then
+								continue;
+							end;
 						
 							local alive = player:Alive();
 							
@@ -322,8 +331,11 @@ function ENT:Think()
 								end);
 							end
 							
+							if self.overboardSince then self.overboardSince[player] = nil; end;
 							table.remove(self.playersOnBoard, i);
 							break;
+						else
+							if self.overboardSince then self.overboardSince[player] = nil; end;
 						end
 					end
 				end
@@ -376,12 +388,24 @@ function ENT:OnRemove()
 		local belongingsEnt = ents.Create("cw_belongings");
 	
 		belongingsEnt:SetData(self.cwInventory, self.cwCash, "Ironclad Cargo");
-		belongingsEnt:SetPos(self:GetPos() + Vector(0, 0, 128));
+		local trace = util.TraceHull({
+			start = self:GetPos() + Vector(0, 0, 64),
+			endpos = self:GetPos() + Vector(0, 0, 144),
+			mins = Vector(-16, -16, 0),
+			maxs = Vector(16, 16, 32),
+			filter = self,
+			mask = MASK_SOLID_BRUSHONLY
+		});
+		local spawnPos = trace.HitPos;
+		if (!util.IsInWorld(spawnPos)) then
+			spawnPos = self:GetPos() + Vector(0, 0, 32);
+		end
+		belongingsEnt:SetPos(spawnPos);
 		belongingsEnt:Spawn();
 		
 		timer.Create("BelongingsTimer_"..belongingsEnt:EntIndex(), 1200, 1, function()
-			if IsValid(self) then
-				self:Remove();
+			if IsValid(belongingsEnt) then
+				belongingsEnt:Remove();
 			end
 		end);
 	end

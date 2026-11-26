@@ -1318,7 +1318,7 @@ function Clockwork.player:Query(player, key, default)
 end
 
 -- A function to set a player to a safe position.
--- bUnragdolling: the player is about to stand up, so test the full standing hull (upstream IsStuck).
+-- bUnragdolling: the player is about to stand up, so test the full standing hull.
 function Clockwork.player:SetSafePosition(player, position, filter, bUnragdolling)
 	local function RelocateRagdoll(finalPos)
 		if (!bUnragdolling and player:IsRagdolled()) then

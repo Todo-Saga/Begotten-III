@@ -138,7 +138,7 @@ function PLUGIN:PostPlayerDraw(player, flags)
 		local gender = player:GetGender();
 		local kinFaction = (rawFaction == "Children of Satan") and player:GetNetVar("kinisgerOverride") or nil;
 		local subfaction = player:GetNetVar("subfaction");
-		-- Upstream: the override subfaction only applies while the effective faction is still Children of Satan.
+		-- The override subfaction only applies while the effective faction is still Children of Satan.
 		if (kinFaction or rawFaction) == "Children of Satan" then
 			subfaction = player:GetNetVar("kinisgerOverrideSubfaction") or subfaction;
 		end;

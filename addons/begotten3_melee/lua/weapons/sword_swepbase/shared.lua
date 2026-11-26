@@ -317,7 +317,7 @@ function SWEP:Hitscan()
 				effect:SetScale(16);
 			util.Effect("BloodImpact", effect, true, true);
 			
-			--if not Clockwork.entity:GetPlayer(trEnt) or not Clockwork.entity:GetPlayer(trEnt):Alive() then
+			--if not Clockwork.entity:GetPlayer(tr.Entity) or not Clockwork.entity:GetPlayer(tr.Entity):Alive() then
 				if self.Owner:GetNetVar("ThrustStance") != true or (self.ChoppingAltAttack or self.PummelingAltAttack) then
 					trEnt:EmitSound(attacksoundtable["hitbody"][math.random(1, #attacksoundtable["hitbody"])])
 				else

@@ -3604,7 +3604,7 @@ function Schema:ActionStopped(player, action)
 		end
 		player.itemUsing = nil;
 
-		-- Releases the surgery lock; surgeryStage is kept so progress resumes (upstream behaviour).
+		-- Releases the surgery lock; surgeryStage is kept so progress resumes.
 		if cwMedicalSystem and cwMedicalSystem.CancelSurgery then
 			cwMedicalSystem:CancelSurgery(player);
 		end

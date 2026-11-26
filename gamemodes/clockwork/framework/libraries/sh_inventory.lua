@@ -848,7 +848,7 @@ end
 
 if (SERVER) then
 	-- A function to apply a repair kit to an item.
-	-- bAllowBroken: skip the Artisan requirement for broken items (ground repair never had it upstream).
+	-- bAllowBroken: skip the Artisan requirement for broken items (ground repair never required it).
 	function Clockwork.inventory:ApplyRepairKit(player, itemTable, repairItemTable, bAllowBroken)
 		if not (IsValid(player) and itemTable and repairItemTable) then return false end;
 		if not player:HasItemInstance(repairItemTable) then return false end;
@@ -875,7 +875,7 @@ if (SERVER) then
 			Schema:EasyText(player, "peru", "This repair kit is depleted and cannot be used!");
 			return false;
 		end;
-		-- Upstream repair formula.
+		-- Original repair formula.
 		local replenishment = conditionReplenishment - (((100 - kitCondition) * costMod) * (conditionReplenishment / 100));
 
 		itemTable:GiveCondition(math.min(replenishment, 100));

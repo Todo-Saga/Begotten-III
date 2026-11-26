@@ -21,6 +21,7 @@ util.AddNetworkString("nVar")
 util.AddNetworkString("nDel")
 util.AddNetworkString("nLcl")
 util.AddNetworkString("gVar")
+util.AddNetworkString("cwVarsSync")
 
 -- Check if there is an attempt to send a function. Can't send those.
 local function checkBadType(name, object)
@@ -100,8 +101,23 @@ function playerMeta:SyncVars()
 	end
 
 	--netstream.Start(self, "gVar", k, v)
-	netstream.Heavy(self, "nVarsSync", syncTable)
-	netstream.Heavy(self, "gVarsSync", globals)
+	-- One snapshot of entity and global vars. pON keeps the array shape; compressed and split under the net message size limit.
+	local payload = util.Compress(pon.encode({syncTable, globals}))
+	if not payload then return end
+
+	local chunkSize = 60000
+	local parts = math.ceil(#payload / chunkSize)
+
+	for i = 1, parts do
+		local chunk = string.sub(payload, (i - 1) * chunkSize + 1, i * chunkSize)
+
+		net.Start("cwVarsSync")
+			net.WriteUInt(i, 16)
+			net.WriteUInt(parts, 16)
+			net.WriteUInt(#chunk, 16)
+			net.WriteData(chunk, #chunk)
+		net.Send(self)
+	end
 end
 
 function entityMeta:SendNetVar(key, receiver)

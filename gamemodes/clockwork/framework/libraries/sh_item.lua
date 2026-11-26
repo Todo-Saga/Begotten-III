@@ -1436,10 +1436,10 @@ if (SERVER) then
 		end;
 
 		-- Unconditional resend every 1-5s (base "last ditch" clientside itemtable desync fix).
-		netstream.Start(player, "WeaponItemData", {
-			definition = item.GetDefinition(itemTable, true),
-			weapon = weapon:EntIndex()
-		});
+		net.Start("cwWeaponItemData");
+			net.WriteUInt(weapon:EntIndex(), 16);
+			net.WriteTable(item.GetDefinition(itemTable, true));
+		net.Send(player);
 
 		return math.random(1, 5);
 	end;
@@ -1449,6 +1449,9 @@ if (SERVER) then
 		@details A function to send an item update to it's observers.
 		@returns Table The table of observers.
 	--]]
+	util.AddNetworkString("cwWeaponItemData");
+	util.AddNetworkString("cwInvNetwork");
+
 	local function HasItemInstanceRecursive(inventory, targetItem, visited, depth)
 		if not (istable(inventory) and targetItem) then return false end
 		if Clockwork.inventory:HasItemInstance(inventory, targetItem) then return true end
@@ -1477,10 +1480,12 @@ if (SERVER) then
 			local recipients;
 
 			if IsValid(itemEntity) then
-				netstream.Start(nil, "InvNetwork", {
-					itemID = itemID,
-					data = data
-				});
+				net.Start("cwInvNetwork");
+					net.WriteTable({
+						itemID = itemID,
+						data = data
+					});
+				net.Broadcast();
 				return;
 			else
 				local recMap = {};
@@ -1525,10 +1530,12 @@ if (SERVER) then
 
 				-- Equipped items are networked to every client (see Clockwork.equipment), so their data updates must be too.
 				if bEquipped then
-					netstream.Start(nil, "InvNetwork", {
-						itemID = itemID,
-						data = data
-					});
+					net.Start("cwInvNetwork");
+						net.WriteTable({
+							itemID = itemID,
+							data = data
+						});
+					net.Broadcast();
 					return;
 				end;
 
@@ -1575,10 +1582,12 @@ if (SERVER) then
 			end
 
 			if recipients and #recipients > 0 then
-				netstream.Start(recipients, "InvNetwork", {
-					itemID = itemID,
-					data = data
-				});
+				net.Start("cwInvNetwork");
+					net.WriteTable({
+						itemID = itemID,
+						data = data
+					});
+				net.Send(recipients);
 			end
 		end;
 	end;

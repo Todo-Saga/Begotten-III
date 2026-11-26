@@ -121,7 +121,7 @@ net.Receive("gVar", function()
 	end
 end)
 
-netstream.Hook("nVarsSync", function(batch)
+local function ApplyEntityVarsSync(batch)
 	if not istable(batch) then return end
 
 	local wasSynced = nVarsSynced
@@ -156,9 +156,9 @@ netstream.Hook("nVarsSync", function(batch)
 	nVarsSynced = true
 	deletedIndices = nil
 	touchedKeys = nil
-end)
+end
 
-netstream.Hook("gVarsSync", function(vars)
+local function ApplyGlobalVarsSync(vars)
 	if not istable(vars) then return end
 
 	local wasSynced = gVarsSynced
@@ -182,6 +182,34 @@ netstream.Hook("gVarsSync", function(vars)
 
 	gVarsSynced = true
 	touchedGlobals = nil
+end
+
+local syncParts
+
+net.Receive("cwVarsSync", function()
+	local part = net.ReadUInt(16)
+	local total = net.ReadUInt(16)
+	local chunk = net.ReadData(net.ReadUInt(16))
+
+	if part == 1 then
+		syncParts = {}
+	elseif not syncParts or #syncParts ~= part - 1 then
+		syncParts = nil
+		return
+	end
+
+	syncParts[part] = chunk
+	if part < total then return end
+
+	local raw = util.Decompress(table.concat(syncParts))
+	syncParts = nil
+	if not raw then return end
+
+	local ok, snapshot = pcall(pon.decode, raw)
+	if not ok or not istable(snapshot) then return end
+
+	ApplyEntityVarsSync(snapshot[1])
+	ApplyGlobalVarsSync(snapshot[2])
 end)
 
 function netvars.GetNetVar(key, default)

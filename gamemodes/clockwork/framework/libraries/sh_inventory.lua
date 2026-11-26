@@ -452,7 +452,9 @@ if (CLIENT) then
 		hook.Run("PlayerItemGiven")
 	end)
 
-	netstream.Hook("InvNetwork", function(data)
+	net.Receive("cwInvNetwork", function()
+		local data = net.ReadTable()
+
 		local itemTable = item.FindInstance(data.itemID)
 		
 		if (itemTable) then

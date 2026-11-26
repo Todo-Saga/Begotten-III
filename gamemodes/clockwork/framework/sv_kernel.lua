@@ -1211,10 +1211,10 @@ function playerMeta:Give(class, itemTable, bForceReturn)
 		local weapon = self:GetWeapon(class)
 
 		if (IsValid(weapon) and itemTable) then
-			netstream.Start(self, "WeaponItemData", {
-				definition = item.GetDefinition(itemTable, true),
-				weapon = weapon:EntIndex()
-			})
+			net.Start("cwWeaponItemData");
+				net.WriteUInt(weapon:EntIndex(), 16);
+				net.WriteTable(item.GetDefinition(itemTable, true));
+			net.Send(self)
 
 			weapon:SetNWInt("ItemID", itemTable.itemID);
 			weapon.cwItemTable = itemTable

@@ -120,15 +120,41 @@ function playerMeta:SyncVars()
 	end
 end
 
+local function FilterHumanReceiver(receiver)
+	if (receiver == nil) then
+		return nil, true
+	end
+
+	if (istable(receiver)) then
+		local humans = {}
+		for i = 1, #receiver do
+			local p = receiver[i]
+			if (IsValid(p) and (not p:IsPlayer() or not p:IsBot())) then
+				humans[#humans + 1] = p
+			end
+		end
+		return humans, (#humans > 0)
+	end
+
+	if (IsValid(receiver) and receiver:IsPlayer() and receiver:IsBot()) then
+		return nil, false
+	end
+
+	return receiver, true
+end
+
 function entityMeta:SendNetVar(key, receiver)
+	local target, shouldSend = FilterHumanReceiver(receiver)
+	if (not shouldSend) then return end
+
 	--netstream.Heavy(receiver, "nVar", self:EntIndex(), key, stored[self] and stored[self][key])
 	net.Start("nVar")
 		net.WriteUInt(self:EntIndex(), 14);
 		net.WriteString(key)
 		net.WriteType(stored[self] and stored[self][key])
 		
-	if receiver then
-		net.Send(receiver)
+	if target then
+		net.Send(target)
 		return;
 	end
 	
@@ -143,12 +169,15 @@ function entityMeta:ClearNetVars(receiver)
 		local idx = self:EntIndex()
 		if (idx < 0 or idx >= 16384) then return end
 
+		local target, shouldSend = FilterHumanReceiver(receiver)
+		if (not shouldSend) then return end
+
 		--netstream.Start(receiver, "nDel", self:EntIndex())
 		net.Start("nDel")
 			net.WriteUInt(idx, 14)
 			
-		if receiver then
-			net.Send(receiver)
+		if target then
+			net.Send(target)
 			return;
 		end
 		
@@ -189,11 +218,13 @@ function entityMeta:SetLocalVar(key, value)
 	stored[self] = stored[self] or {}
 	stored[self][key] = value
 
-	--netstream.Start(self, "nLcl", key, value)
-	net.Start("nLcl")
-		net.WriteString(key)
-		net.WriteType(value)
-	net.Send(self)
+	if (not self:IsBot()) then
+		--netstream.Start(self, "nLcl", key, value)
+		net.Start("nLcl")
+			net.WriteString(key)
+			net.WriteType(value)
+		net.Send(self)
+	end
 end
 
 

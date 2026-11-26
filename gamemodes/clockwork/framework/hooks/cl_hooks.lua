@@ -3350,13 +3350,13 @@ function GM:RenderScreenspaceEffects()
 					
 					if headHealth then
 						if headHealth <= 75 and headHealth > 50 then
-							motionBlurs.blurTable["health"] = 0.1;
-						elseif headHealth <= 50 and headHealth > 25 then
-							motionBlurs.blurTable["health"] = 0.3;
-						elseif headHealth <= 25 and headHealth > 10 then
-							motionBlurs.blurTable["health"] = 0.6;
-						elseif headHealth < 10 then
 							motionBlurs.blurTable["health"] = 0.9;
+						elseif headHealth <= 50 and headHealth > 25 then
+							motionBlurs.blurTable["health"] = 0.6;
+						elseif headHealth <= 25 and headHealth > 10 then
+							motionBlurs.blurTable["health"] = 0.3;
+						elseif headHealth <= 10 then
+							motionBlurs.blurTable["health"] = 0.1;
 						end
 					end
 				end

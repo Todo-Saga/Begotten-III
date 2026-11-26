@@ -133,6 +133,15 @@ local ITEM = Clockwork.item:New(nil, true)
 		local clothesItem = player:GetClothesEquipped();
 		local helmetItem = player:GetHelmetEquipped();
 		
+		if self.concealsFace or (helmetItem and helmetItem.concealsFace) then
+			-- Anti-spam cooldown (not an exploit fix): limits rapid mask/clothing swapping to once per second.
+			-- Forced unequips (death, ragdoll, admin) skip it and never get blocked.
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
+		end
+		
 		if !Clockwork.player:HasFlags(player, "S") then
 			local faction = player:GetFaction();
 			local subfaction = player:GetSubfaction();
@@ -252,8 +261,13 @@ local ITEM = Clockwork.item:New(nil, true)
 
 		if (self.bodyGroup != -1) or self.headReplacement then
 			if (player:Alive() and !player:IsRagdolled()) then
+				local bWasConcealed = helmetItem and helmetItem.concealsFace;
 				self:OnWear(player);
 				Clockwork.equipment:EquipItem(player, self, "Helms");
+				
+				if self.concealsFace or bWasConcealed then
+					player.cwLastMaskSwap = CurTime();
+				end
 				
 				hook.Run("PlayerUseItem", player, self, itemEntity);
 				
@@ -272,13 +286,26 @@ local ITEM = Clockwork.item:New(nil, true)
 	end
 
 	-- Called when a player has unequipped the item.
-	function ITEM:OnPlayerUnequipped(player, extraData)
+	function ITEM:OnPlayerUnequipped(player, extraData, bForced)
 		if self.permanent then
 			Schema:EasyText(player, "peru", "This helmet is grafted into your skin and fused with your flesh, and cannot be unequipped!");
 			return false;
 		end
 	
+		if not bForced and self.concealsFace and player:Alive() and !player:IsRagdolled() then
+			-- Anti-spam cooldown (not an exploit fix): limits rapid mask/clothing swapping to once per second.
+			-- Forced unequips (bForced) bypass it, so death/ragdoll/admin removal never get blocked.
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
+		end
+	
 		if Clockwork.equipment:UnequipItem(player, self) then
+			if not bForced and player:Alive() and !player:IsRagdolled() and self.concealsFace then
+				player.cwLastMaskSwap = CurTime();
+			end
+			
 			if extraData == "drop" then
 				local trace = player:GetEyeTraceNoCursor()
 

@@ -90,6 +90,13 @@ local ITEM = item.New(nil, true);
 	
 		if !player:Alive() then
 			bSkipProgressBar = true;
+		elseif not bSkipProgressBar and self.concealsFace and !player:IsRagdolled() then
+			-- Anti-spam cooldown (not an exploit fix): limits rapid mask/clothing swapping to once per second.
+			-- Forced unequips (bSkipProgressBar) bypass it, so death/ragdoll/admin removal never get blocked.
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
 		end
 	
 		if extraData == "drop" then
@@ -151,6 +158,10 @@ local ITEM = item.New(nil, true);
 				end
 				
 				if self.concealsFace == true then
+					if not bSkipProgressBar and player:Alive() and !player:IsRagdolled() then
+						player.cwLastMaskSwap = CurTime();
+					end
+					
 					local helmetItem = player:GetHelmetEquipped();
 					if (!helmetItem or !helmetItem.concealsFace) then
 						player:SetNetVar("faceConcealed", false);
@@ -278,6 +289,15 @@ local ITEM = item.New(nil, true);
 		
 		local clothesItem = player:GetClothesEquipped();
 		
+		if self.concealsFace or (clothesItem and clothesItem.concealsFace) then
+			-- Anti-spam cooldown (not an exploit fix): limits rapid mask/clothing swapping to once per second.
+			-- Forced unequips (death, ragdoll, admin) skip it and never get blocked.
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
+		end
+	
 		local action = Clockwork.player:GetAction(player);
 		local faction = player:GetFaction();
 		local subfaction = player:GetSubfaction();
@@ -484,13 +504,17 @@ local ITEM = item.New(nil, true);
 						end;
 					end;
 					
-					
+					local bWasConcealed = clothesItem and clothesItem.concealsFace;
 					if clothesItem and clothesItem ~= self then
 						Clockwork.equipment:UnequipItem(player, clothesItem);
 					end
 					
 					self:OnWear(player);
 					Clockwork.equipment:EquipItem(player, self, "Armor");
+					
+					if self.concealsFace or bWasConcealed then
+						player.cwLastMaskSwap = CurTime();
+					end
 					
 					hook.Run("PlayerUseItem", player, self, itemEntity);
 					hook.Run("PlayerSetHandsModel", player, player:GetHands());

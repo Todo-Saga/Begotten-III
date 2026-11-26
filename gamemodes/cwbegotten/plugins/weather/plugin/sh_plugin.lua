@@ -228,16 +228,35 @@ if cwWeather.systemEnabled then
 		};
 	end
 	
-	function cwWeather:IsOutside(pos)
-		local trace = {}
-		trace.start = pos
-		trace.endpos = trace.start + Vector(0, 0, 32768)
-		trace.mask = MASK_SOLID
-		trace.collisiongroup = COLLISION_GROUP_WEAPON
-		local tr = util.TraceLine(trace)
+	local outsideTrace = {
+		mask = MASK_SOLID,
+		collisiongroup = COLLISION_GROUP_WEAPON,
+	}
+	local vecSky = Vector(0, 0, 32768)
+
+	function cwWeather:IsOutside(pos, filter)
+		outsideTrace.start = pos
+		outsideTrace.endpos = pos + vecSky
+		if filter then
+			outsideTrace.filter = filter;
+		elseif CLIENT and IsValid(Clockwork.Client) then
+			local ragdoll = Clockwork.Client.GetRagdollEntity and Clockwork.Client:GetRagdollEntity();
+			if IsValid(ragdoll) then
+				self._weatherFilter = self._weatherFilter or {};
+				self._weatherFilter[1] = Clockwork.Client;
+				self._weatherFilter[2] = ragdoll;
+				outsideTrace.filter = self._weatherFilter;
+			else
+				if self._weatherFilter then self._weatherFilter[2] = nil; end;
+				outsideTrace.filter = Clockwork.Client;
+			end;
+		else
+			outsideTrace.filter = nil;
+		end
+		local tr = util.TraceLine(outsideTrace)
 
 		if CLIENT then
-			self.HeightMin = (tr.HitPos - trace.start):Length();
+			self.HeightMin = (tr.HitPos - outsideTrace.start):Length();
 		end
 
 		if tr.HitSky or tr.HitNoDraw then 

@@ -36,18 +36,32 @@ function cwMusic:EntityTakeDamageNew(entity, damageInfo)
 			
 			if (amount > (health * 0.1)) then
 				if (attacker:IsPlayer() or attacker:IsNPC() or attacker:IsNextBot()) and attacker ~= entity then
-					if (entity:IsPlayer()) then 
-						netstream.Start(entity, "StartBattleMusic")
+					local curTime = CurTime()
+					local recipients = {}
+
+					if (entity:IsPlayer() and not entity:IsBot() and curTime >= (entity._cwNextBattleMusic or 0)) then
+						entity._cwNextBattleMusic = curTime + 4
+						recipients[#recipients + 1] = entity
 					end
-					
-					if (attacker:IsPlayer()) then
-						netstream.Start(attacker, "StartBattleMusic")
+
+					if (attacker:IsPlayer() and not attacker:IsBot() and curTime >= (attacker._cwNextBattleMusic or 0)) then
+						attacker._cwNextBattleMusic = curTime + 4
+						recipients[#recipients + 1] = attacker
 					end
-					
-					for k, v in pairs (ents.FindInSphere(entity:GetPos(), 512)) do
-						if (v:IsPlayer() and v ~= player and v ~= attacker) then
-							netstream.Start(v, "StartBattleMusic")
+
+					local entPos = entity:GetPos()
+					local maxDistSqr = 262144 -- 512 * 512
+					for _, v in _player.Iterator() do
+						if v ~= entity and v ~= attacker and not v:IsBot() and curTime >= (v._cwNextBattleMusic or 0) then
+							if v:GetPos():DistToSqr(entPos) <= maxDistSqr then
+								v._cwNextBattleMusic = curTime + 4
+								recipients[#recipients + 1] = v
+							end
 						end
+					end
+
+					if #recipients > 0 then
+						netstream.Start(recipients, "StartBattleMusic")
 					end
 				end
 				

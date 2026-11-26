@@ -4,58 +4,85 @@
 
 -- Called at an interval while a player is connected.
 function cwLantern:PlayerThink(player, curTime, infoTable, alive, initialized, plyTab)
-	local activeWeapon = player:GetActiveWeapon();
-	
-	if !activeWeapon:IsValid() then return end;
-	
+	local hasLantern = player:HasWeapon("cw_lantern");
 	local lanternOnHip = player:GetNetVar("lanternOnHip");
+	if not hasLantern then
+		plyTab.nextLanternBurn = nil;
+		plyTab.nextOilDrop = nil;
+		if lanternOnHip then
+			player:SetNetVar("lanternOnHip", false);
+		end;
+		if player:GetNetVar("oil") ~= nil then
+			player:SetNetVar("oil", nil);
+		end;
+		return;
+	end;
 
-	if lanternOnHip and (!player:HasWeapon("cw_lantern") or activeWeapon:GetClass() == "cw_lantern") then
+	local bRagdolled = player:IsRagdolled();
+	if bRagdolled and not lanternOnHip then return end;
+
+	local activeWeapon = not bRagdolled and player:GetActiveWeapon() or nil;
+	local isHoldingLantern = IsValid(activeWeapon) and (activeWeapon:GetClass() == "cw_lantern");
+
+	if lanternOnHip and isHoldingLantern then
 		player:SetNetVar("lanternOnHip", false);
 		lanternOnHip = false;
-	end
+	end;
 
-	if !plyTab.nextLanternBurn then plyTab.nextLanternBurn = curTime + math.random(60, 120); end
+	if (!lanternOnHip and !isHoldingLantern) then
+		return;
+	end;
 
-	if (plyTab.nextLanternBurn <= curTime and lanternOnHip and player:GetNetVar("oil", 0) > 20 and !player:GetVelocity():IsZero()) then
-		plyTab.nextLanternBurn = curTime + math.random(60, 120);
+	local lanternWeapon = player:GetWeapon("cw_lantern");
+	local weaponItemTable = IsValid(lanternWeapon) and item.GetByWeapon(lanternWeapon) or nil;
+	if (weaponItemTable) then
+		local itemOil = math.Clamp(tonumber(weaponItemTable:GetData("oil")) or 0, 0, 100);
+		if (player:GetNetVar("oil") == nil or (player:GetNetVar("oil", 0) == 0 and itemOil > 0)) then
+			player:SetNetVar("oil", itemOil);
+		end;
+	end;
 
-		if (math.random(0, (player:HasTrait("marked") and 50 or 150)) == 0) then
-			local pronoun = (player:GetGender() == GENDER_FEMALE and "her" or "him");
+	if lanternOnHip then
+		if not bRagdolled then
+			if !plyTab.nextLanternBurn then plyTab.nextLanternBurn = curTime + math.random(60, 120); end
 
-			Clockwork.chatBox:AddInTargetRadius(player, "me", "'s lantern spills some oil onto "..pronoun.."self, igniting and setting "..pronoun.." on fire!", player:GetPos(), Clockwork.config:Get("talk_radius"):Get() * 2);
-			player:Ignite(5);
-		end
-	end
+			if (plyTab.nextLanternBurn <= curTime and player:GetNetVar("oil", 0) > 20 and !player:GetVelocity():IsZero()) then
+				plyTab.nextLanternBurn = curTime + math.random(60, 120);
 
-	if (activeWeapon:GetClass() != "cw_lantern" and lanternOnHip) then
-		if (!plyTab.nextOilDrop or curTime > plyTab.nextOilDrop) then
-			local lanternWeapon = player:GetWeapon("cw_lantern");
+				if (math.random(0, (player:HasTrait("marked") and 50 or 150)) == 0) then
+					local pronoun = (player:GetGender() == GENDER_FEMALE and "her" or "him");
 
-			if (lanternWeapon) then
-				local weaponItemTable = item.GetByWeapon(lanternWeapon);
-				
-				if weaponItemTable then
-					local currentOil = weaponItemTable:GetData("oil");
-
-					weaponItemTable:SetData("oil", math.Clamp(currentOil - 1, 0, 100));
-					player:SetNetVar("oil", math.Clamp(currentOil - 1, 0, 100));
+					Clockwork.chatBox:AddInTargetRadius(player, "me", "'s lantern spills some oil onto "..pronoun.."self, igniting and setting "..pronoun.." on fire!", player:GetPos(), Clockwork.config:Get("talk_radius"):Get() * 2);
+					player:Ignite(5);
 				end
-
-				plyTab.nextOilDrop = curTime + 30;
 			end
+		end
+
+		if (!plyTab.nextOilDrop or curTime > plyTab.nextOilDrop) then
+			if (weaponItemTable) then
+				local currentOil = tonumber(weaponItemTable:GetData("oil")) or 0;
+				if (currentOil > 0) then
+					local nextOil = math.Clamp(currentOil - 1, 0, 100);
+					weaponItemTable:SetData("oil", nextOil);
+					player:SetNetVar("oil", nextOil);
+				elseif (player:GetNetVar("oil", 0) ~= 0) then
+					player:SetNetVar("oil", 0);
+				end;
+			end
+
+			plyTab.nextOilDrop = curTime + 30;
 		end;
 		
 		return;
 	end
 
-	if activeWeapon:GetClass() == "cw_lantern" then
+	if isHoldingLantern then
 		local weaponItemTable = item.GetByWeapon(activeWeapon);
 		
 		if weaponItemTable then
-			local currentOil = weaponItemTable:GetData("oil");
+			local currentOil = tonumber(weaponItemTable:GetData("oil")) or 0;
 			
-			if (tonumber(currentOil) > 0) then
+			if (currentOil > 0) then
 				local bWeaponRaised = player:IsWeaponRaised(activeWeapon);
 
 				if (bWeaponRaised) then

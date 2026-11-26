@@ -11,8 +11,12 @@ cwMedicalSystem.bleedDamageThresholds = {
 	[DMG_VEHICLE] = 10, -- stab
 };
 
+local MEDICAL_DAMAGE_TYPES = {DMG_FALL, DMG_BULLET, DMG_BUCKSHOT, DMG_BURN, DMG_CLUB, DMG_SLASH, DMG_VEHICLE};
+
 -- Called when a player's character has loaded.
 function cwMedicalSystem:PlayerCharacterLoaded(player)
+	player._cwLastSentInjuries = nil;
+	player._cwLastSentLimbs = nil;
 	player.nextDiseaseCheck = CurTime() + math.random(120, 180);
 	
 	if player:HasTrait("leper") and not player:HasDisease("leprosy") then
@@ -20,6 +24,27 @@ function cwMedicalSystem:PlayerCharacterLoaded(player)
 	else
 		-- Shit will already be networked if the leprosy disease is given.
 		player:NetworkDiseases();
+	end
+
+	local bleedingLimbs = player:GetCharacterData("BleedingLimbs", {});
+	local bleeding = false;
+
+	for k, v in pairs(bleedingLimbs) do
+		if v == true then
+			bleeding = true;
+			break;
+		end
+	end
+
+	if bleeding or player:GetCharacterData("bleeding") == true then
+		player.bleeding = true;
+		player.nextBleedPoint = CurTime() + 1;
+	else
+		if player:GetCharacterData("bleeding") == 0 then
+			player:SetCharacterData("bleeding", nil);
+		end;
+		player.bleeding = false;
+		player.nextBleedPoint = nil;
 	end
 end;
 
@@ -40,7 +65,12 @@ function cwMedicalSystem:KeyPress(player, key)
 		local action = Clockwork.player:GetAction(player);
 		
 		if (action == "heal" or action == "healing" or action == "performing_surgery" or action == "chloroform") then
-			Clockwork.player:SetAction(player, nil);
+			if (action == "performing_surgery" and self.CancelSurgery) then
+				self:CancelSurgery(player);
+			end;
+			Clockwork.player:SetAction(player, false);
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
 		end
 	end;
 end;
@@ -197,7 +227,13 @@ function cwMedicalSystem:PlayerThink(player, curTime, infoTable, alive, initiali
 									end
 								elseif not plyTab.scornificationismActive then
 									player:DeathCauseOverride("Bled out in a puddle of their own blood.");
-									player:TakeDamage(1, player, player);
+									local bleedDamage = DamageInfo();
+									bleedDamage:SetDamage(1);
+									bleedDamage:SetAttacker(player);
+									bleedDamage:SetInflictor(player);
+									bleedDamage:SetDamageType(DMG_DIRECT);
+									bleedDamage:SetDamageCustom(self.DMG_CUSTOM_BLEED);
+									player:TakeDamageInfo(bleedDamage);
 								end
 							end
 
@@ -581,8 +617,16 @@ function cwMedicalSystem:PlayerThink(player, curTime, infoTable, alive, initiali
 							
 						plyTab.nextSurgeryCheck = curTime + 0.5;
 					end
-				else
+				elseif not IsValid(plyTab.playerPerformingSurgery) or plyTab.playerPerformingSurgery.surgeryTarget ~= player or !plyTab.playerPerformingSurgery:Alive() or (plyTab.surgeryGraceUntil and curTime > plyTab.surgeryGraceUntil) then
+					local surgeon = plyTab.playerPerformingSurgery;
+					if IsValid(surgeon) and surgeon.surgeryTarget == player then
+						surgeon.surgeryTarget = nil;
+					end;
 					plyTab.playerPerformingSurgery = nil;
+					plyTab.limbUnderSurgery = nil;
+					plyTab.injuryUnderSurgery = nil;
+					plyTab.surgeryStage = nil;
+					plyTab.surgeryGraceUntil = nil;
 				end
 			end
 		end
@@ -594,6 +638,17 @@ function cwMedicalSystem:PostCalculatePlayerDamage(player, hitGroup, damageInfo)
 	if Clockwork.player:HasFlags(player, "I") then return end;
 	
 	local action = Clockwork.player:GetAction(player);
+	local interruptDamage = damageInfo:GetDamage() or 0;
+	
+	if (action == "heal" or action == "healing" or action == "performing_surgery" or action == "chloroform") and interruptDamage > 0 and damageInfo:GetDamageCustom() ~= self.DMG_CUSTOM_BLEED then
+		if (action == "performing_surgery" and self.CancelSurgery) then
+			self:CancelSurgery(player);
+		end;
+		Clockwork.player:SetAction(player, false);
+		net.Start("cwResetViewModelIdle");
+		net.Send(player);
+	end;
+	
 	local curTime = CurTime();
 	local plyTab = player:GetTable();
 	
@@ -680,13 +735,12 @@ function cwMedicalSystem:PostCalculatePlayerDamage(player, hitGroup, damageInfo)
 		
 		--local damageType = damageInfo:GetDamageType();
 		local damageType;
-		local damageTypes = {DMG_FALL, DMG_BULLET, DMG_BUCKSHOT, DMG_BURN, DMG_CLUB, DMG_SLASH, DMG_VEHICLE};
 		local damage = damageInfo:GetDamage();
 		local helmetItem = player:GetHelmetEquipped();
 		
-		for i = 1, #damageTypes do
-			if damageInfo:IsDamageType(damageTypes[i]) then
-				damageType = damageTypes[i];
+		for i = 1, #MEDICAL_DAMAGE_TYPES do
+			if damageInfo:IsDamageType(MEDICAL_DAMAGE_TYPES[i]) then
+				damageType = MEDICAL_DAMAGE_TYPES[i];
 				break;
 			end
 		end
@@ -852,12 +906,14 @@ end;
 
 -- Called when a player's character data should be saved.
 function cwMedicalSystem:PlayerSaveCharacterData(player, data)
-	--[[if (data["bleeding"]) then
-		data["bleeding"] = 0;
-	end;]]--
-	
 	if (data["BloodLevel"]) then
 		data["BloodLevel"] = math.Round(data["BloodLevel"]);
+	end;
+
+	if player.bleeding then
+		data["bleeding"] = true;
+	else
+		data["bleeding"] = nil;
 	end;
 end;
 
@@ -870,7 +926,22 @@ function cwMedicalSystem:PlayerRestoreCharacterData(player, data)
 end;
 
 -- Called when a player dies.
+function cwMedicalSystem:PlayerDisconnected(player)
+	if player.surgeryTarget then
+		self:CancelSurgery(player, true);
+	end;
+	if IsValid(player.playerPerformingSurgery) and player.playerPerformingSurgery.surgeryTarget == player then
+		self:CancelSurgery(player.playerPerformingSurgery, true);
+	end;
+end;
+
 function cwMedicalSystem:PlayerDeath(player, inflictor, attacker, damageInfo)
+	if player.surgeryTarget then
+		self:CancelSurgery(player, true);
+	end;
+	if IsValid(player.playerPerformingSurgery) and player.playerPerformingSurgery.surgeryTarget == player then
+		self:CancelSurgery(player.playerPerformingSurgery, true);
+	end;
 	if not player.opponent then
 		local diseases = player:GetCharacterData("diseases", {});
 		local potential_diseases = {};
@@ -898,6 +969,8 @@ function cwMedicalSystem:PlayerDeath(player, inflictor, attacker, damageInfo)
 		player:SetCharacterData("BloodLevel", self.maxBloodLevel);
 		player:SetNWInt("BloodLevel", player:GetCharacterData("BloodLevel", self.maxBloodLevel));
 		
+		player._cwLastSentInjuries = nil;
+		player._cwLastSentLimbs = nil;
 		self:SetupPlayer(player);
 		self:StopAllBleeding(player);
 		
@@ -1015,6 +1088,8 @@ function cwMedicalSystem:PlayerHealed(player, itemTable) end;
 
 -- Called just after a player spawns.
 function cwMedicalSystem:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
+	player._cwLastSentInjuries = nil;
+	player._cwLastSentLimbs = nil;
 	--Clockwork.player:SetAction(player, "die", false);
 	--Clockwork.player:SetAction(player, "die_bleedout", false);
 	
@@ -1111,6 +1186,9 @@ end;
 
 -- Called when a player has been ragdolled.
 function cwMedicalSystem:PlayerRagdolled(player, state, ragdoll)
+	if player.surgeryTarget then
+		self:CancelSurgery(player);
+	end;
 	--Clockwork.player:SetAction(player, "die", false);
 	--Clockwork.player:SetAction(player, "die_bleedout", false);
 end;

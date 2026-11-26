@@ -93,7 +93,7 @@ local ITEM = Clockwork.item:New("medical_base");
 	
 	function ITEM:OnUsed(player, itemEntity)
 		Schema:EasyText(player, "olivedrab","You apply the antibiotic paste to your wound.");
-		netstream.Start(self, "Stunned", 2);
+		netstream.Start(player, "Stunned", 2);
 	end;
 ITEM:Register();
 
@@ -329,7 +329,7 @@ local ITEM = Clockwork.item:New("medical_base");
 	
 	function ITEM:OnUsed(player, itemEntity)
 		Schema:EasyText(player, "olivedrab","The ointment is applied to your skin. It stings like hell, but hopefully it will work.");
-		netstream.Start(self, "Stunned", 2);
+		netstream.Start(player, "Stunned", 2);
 	end;
 ITEM:Register();
 

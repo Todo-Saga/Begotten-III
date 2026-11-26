@@ -169,6 +169,7 @@ function cwRituals:PerformRitual(player, uniqueID, itemIDs, bIgnoreItems, bIgnor
 						
 						if (ritualTable.StartRitual) then
 							if ritualTable:StartRitual(player) == false then
+								player:SetNWInt("cwNextRitual", curTime + 2);
 								return;
 							end
 						end;
@@ -208,11 +209,16 @@ function cwRituals:PerformRitual(player, uniqueID, itemIDs, bIgnoreItems, bIgnor
 					end;
 				end;
 				
+				-- The ritual never started, so only keep a short anti-spam delay instead of the full cooldown.
+				player:SetNWInt("cwNextRitual", curTime + 2);
+				
 				return;
 			elseif (!ritualTable) then
+				player:SetNWInt("cwNextRitual", curTime + 2);
 				return;
 			end;
 			
+			player:SetNWInt("cwNextRitual", curTime + 2);
 			hook.Run("PlayerFailedRitual", player, uniqueID, ritualTable, bHasRequirements, bHasFlags)
 		else
 			Schema:EasyText(player, "peru", "You must wait another "..-math.ceil(curTime - player:GetNWInt("cwNextRitual")).." seconds before attempting to perform a ritual again!")

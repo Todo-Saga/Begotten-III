@@ -268,6 +268,13 @@ local ITEM = item.New(nil, true);
 				Schema:EasyText(player, "peru", "This armor is grafted into your skin and fused with your flesh, and cannot be unequipped!");
 				return false;
 			end
+
+			-- Dropping worn armor must go through the same timed unequip as taking it off, otherwise
+			-- dragging it straight to the ground strips it instantly.
+			if player:Alive() then
+				self:OnPlayerUnequipped(player, "drop");
+				return false;
+			end
 		end
 	end
 

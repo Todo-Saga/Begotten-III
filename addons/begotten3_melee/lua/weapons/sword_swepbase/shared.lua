@@ -3142,6 +3142,16 @@ function SWEP:Holster(wep)
 		end
 	end
 	
+	if SERVER and IsValid(player) and player:IsPlayer() then
+		if self.HolsterOffhand and self:GetNW2String("activeOffhand"):len() > 0 then
+			self:HolsterOffhand();
+		end
+		
+		if self.HolsterShield and self:GetNW2String("activeShield"):len() > 0 then
+			self:HolsterShield();
+		end
+	end
+	
 	if CLIENT then
 		self:RemoveModels();
 	end

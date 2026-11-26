@@ -1096,6 +1096,7 @@ function cwBeliefs:EntityTakeDamageNew(entity, damageInfo)
 											end
 											
 											entTab.distortedRingFired = true;
+											entTab.distortedRingProtection = CurTime() + 0.35;
 											
 											if entTab.opponent then
 												entTab.distortedRingFiredDuel = true;

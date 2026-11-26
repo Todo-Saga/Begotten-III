@@ -85,6 +85,7 @@ if (SERVER) then
 				cappedVector.z = math.Clamp( cappedVector.z, -.4, .4)
 
 				local ang = (turretForward - cappedVector):Angle()
+				ang.p = math.Clamp(math.NormalizeAngle(ang.p), -45, 45)
 				
 				ang:RotateAroundAxis(ang:Up(), 90)
 				

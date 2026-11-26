@@ -116,6 +116,7 @@ function cwMedicalSystem:CancelSurgery(player)
 		target.playerPerformingSurgery = nil;
 		target.limbUnderSurgery = nil;
 		target.injuryUnderSurgery = nil;
+		target.surgeryStage = nil;
 	end;
 end;
 
@@ -397,7 +398,7 @@ function cwMedicalSystem:HealPlayer(player, target, itemTable, hitGroup)
 	end;
 
 	if not self:CanPerformMedicalAction(player) or not self:CanPerformMedicalAction(target) then
-		Schema:EasyText(player, "peru", "You cannot heal someone while airborne!");
+		Schema:EasyText(player, "peru", "You cannot heal someone while airborne or in water!");
 		return;
 	end;
 	
@@ -838,11 +839,16 @@ function cwMedicalSystem:PerformSurgeryOnPlayer(player, target, itemTable, hitGr
 						end
 					end
 
+					if itemTable.uniqueID == "suture" then
+						player:TakeItem(itemTable, true);
+					end;
+
 					hook.Run("PlayerHealed", target, itemTable);
 				else
 					target.playerPerformingSurgery = nil;
 					target.limbUnderSurgery = nil;
 					target.injuryUnderSurgery = nil;
+					target.surgeryStage = nil;
 					Schema:EasyText(player, "chocolate","To perform surgery on someone, they must be fallen over.");
 				end
 			end);

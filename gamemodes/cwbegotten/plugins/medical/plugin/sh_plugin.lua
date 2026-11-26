@@ -31,7 +31,14 @@ end;
 local medicalGroundTrace = { mask = MASK_PLAYERSOLID };
 function cwMedicalSystem:CanPerformMedicalAction(player)
 	if not IsValid(player) then return false; end;
-	if not player:IsOnGround() and player:GetMoveType() == MOVETYPE_WALK and player:WaterLevel() < 2 then
+	local moveType = player:GetMoveType();
+	if moveType == MOVETYPE_LADDER then
+		return false;
+	end;
+	if player:WaterLevel() >= 2 then
+		return false;
+	end;
+	if not player:IsOnGround() and moveType == MOVETYPE_WALK then
 		local pos = player:GetPos();
 		medicalGroundTrace.start = pos;
 		medicalGroundTrace.endpos = pos - Vector(0, 0, 18);

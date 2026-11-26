@@ -630,6 +630,17 @@ function cwMedicalSystem:PostCalculatePlayerDamage(player, hitGroup, damageInfo)
 	if Clockwork.player:HasFlags(player, "I") then return end;
 	
 	local action = Clockwork.player:GetAction(player);
+	local interruptDamage = damageInfo:GetDamage() or 0;
+	
+	if (action == "heal" or action == "healing" or action == "performing_surgery" or action == "chloroform") and interruptDamage > 0 and damageInfo:GetDamageCustom() ~= self.DMG_CUSTOM_BLEED then
+		if (action == "performing_surgery" and self.CancelSurgery) then
+			self:CancelSurgery(player);
+		end;
+		Clockwork.player:SetAction(player, false);
+		net.Start("cwResetViewModelIdle");
+		net.Send(player);
+	end;
+	
 	local curTime = CurTime();
 	local plyTab = player:GetTable();
 	

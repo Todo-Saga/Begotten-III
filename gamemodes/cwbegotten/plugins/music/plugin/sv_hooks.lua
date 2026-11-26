@@ -40,12 +40,12 @@ function cwMusic:EntityTakeDamageNew(entity, damageInfo)
 					local recipients = {}
 
 					if (entity:IsPlayer() and curTime >= (entity._cwNextBattleMusic or 0)) then
-						entity._cwNextBattleMusic = curTime + 0.5
+						entity._cwNextBattleMusic = curTime + 4
 						recipients[#recipients + 1] = entity
 					end
 
 					if (attacker:IsPlayer() and curTime >= (attacker._cwNextBattleMusic or 0)) then
-						attacker._cwNextBattleMusic = curTime + 0.5
+						attacker._cwNextBattleMusic = curTime + 4
 						recipients[#recipients + 1] = attacker
 					end
 
@@ -54,7 +54,7 @@ function cwMusic:EntityTakeDamageNew(entity, damageInfo)
 					for _, v in _player.Iterator() do
 						if v ~= entity and v ~= attacker and curTime >= (v._cwNextBattleMusic or 0) then
 							if v:GetPos():DistToSqr(entPos) <= maxDistSqr then
-								v._cwNextBattleMusic = curTime + 0.5
+								v._cwNextBattleMusic = curTime + 4
 								recipients[#recipients + 1] = v
 							end
 						end

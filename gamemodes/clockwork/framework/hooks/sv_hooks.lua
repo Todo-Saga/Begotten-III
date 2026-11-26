@@ -2881,6 +2881,13 @@ function GM:EntityHandleMenuOption(player, entity, option, arguments)
 		elseif (arguments == "cwItemRepair") then
 			local itemCondition = itemTable:GetCondition() or 100;
 
+			if itemCondition <= 0 then
+				if !cwBeliefs or !player:HasBelief("artisan") then
+					Schema:EasyText(player, "peru", "You cannot repair broken items!");
+					return false;
+				end
+			end
+
 			if itemCondition < 100 then
 				if itemTable.repairItem then
 					local itemList = Clockwork.inventory:GetItemsAsList(player:GetInventory());
@@ -4519,7 +4526,7 @@ function GM:RunModifyPlayerSpeed(player, infoTable, bIgnoreDelay)
 		local targetWalk = math.max(infoTable.walkSpeed, 1);
 		local targetCrouched = math.max(infoTable.crouchedWalkSpeed, 1);
 		local targetJump = math.max(infoTable.jumpPower, 1);
-		local targetRun = (player:KeyDown(IN_BACK)) and targetWalk or infoTable.runSpeed;
+		local targetRun = (player:KeyDown(IN_BACK)) and targetWalk or math.max(infoTable.runSpeed, 0);
 
 		if (math.abs(player:GetWalkSpeed() - targetWalk) > 0.01) then player:SetWalkSpeed(targetWalk); end
 		if (math.abs(player:GetCrouchedWalkSpeed() - targetCrouched) > 0.01) then player:SetCrouchedWalkSpeed(targetCrouched); end

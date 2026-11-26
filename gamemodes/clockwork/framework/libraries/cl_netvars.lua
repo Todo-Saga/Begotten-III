@@ -79,6 +79,23 @@ net.Receive("nVar", function()
 	end
 end)
 
+net.Receive("nVarB", function()
+	local index = net.ReadUInt(14)
+	local count = net.ReadUInt(4)
+
+	stored[index] = stored[index] or {}
+
+	for i = 1, count do
+		local key = net.ReadString()
+		stored[index][key] = net.ReadType()
+
+		if not nVarsSynced and touchedKeys then
+			touchedKeys[index] = touchedKeys[index] or {}
+			touchedKeys[index][key] = true
+		end
+	end
+end)
+
 net.Receive("nDel", function()
 	local index = net.ReadUInt(14);
 

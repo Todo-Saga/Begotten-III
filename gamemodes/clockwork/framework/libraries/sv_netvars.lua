@@ -18,6 +18,7 @@ local globals = {}
 local localKeys = setmetatable({}, {__mode = "k"})
 
 util.AddNetworkString("nVar")
+util.AddNetworkString("nVarB")
 util.AddNetworkString("nDel")
 util.AddNetworkString("nLcl")
 util.AddNetworkString("gVar")
@@ -199,6 +200,45 @@ function entityMeta:SetNetVar(key, value, receiver)
 	stored[self][key] = value
 
 	self:SendNetVar(key, receiver)
+end
+
+-- Batched SetNetVar: sets several keys on this entity and broadcasts one message instead of one per key.
+-- pairs is an ordered array of {key, value}; unchanged keys are skipped.
+function entityMeta:SetNetVars(pairs_)
+	local changed
+	for i = 1, #pairs_ do
+		local key, value = pairs_[i][1], pairs_[i][2]
+		if (checkBadType(key, value)) then continue end
+		if (!istable(value) and stored[self] and stored[self][key] == value) then continue end
+		if (value == nil and (not stored[self] or stored[self][key] == nil)) then continue end
+
+		if (localKeys[self]) then
+			localKeys[self][key] = nil
+		end
+
+		stored[self] = stored[self] or {}
+		stored[self][key] = value
+
+		changed = changed or {}
+		changed[#changed + 1] = key
+	end
+
+	if (not changed) then return end
+
+	local count = #changed
+	if (count == 1) then
+		self:SendNetVar(changed[1])
+		return
+	end
+
+	net.Start("nVarB")
+		net.WriteUInt(self:EntIndex(), 14)
+		net.WriteUInt(count, 4)
+		for i = 1, count do
+			net.WriteString(changed[i])
+			net.WriteType(stored[self][changed[i]])
+		end
+	net.Broadcast()
 end
 
 function entityMeta:SetLocalVar(key, value)

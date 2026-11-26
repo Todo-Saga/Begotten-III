@@ -610,9 +610,7 @@ function Clockwork.player:SetAction(player, action, duration, priority, Callback
 	if (!action or type(action) != "string" or action == "") then
 		timer.Remove("Action"..player:UniqueID())
 
-		player:SetNetVar("StartActTime", 0)
-		player:SetNetVar("ActDuration", 0)
-		player:SetNetVar("ActName", "")
+		player:SetNetVars({{"StartActTime", 0}, {"ActDuration", 0}, {"ActName", ""}})
 		
 		hook.Run("ActionStopped", player, currentAction);
 		hook.Run("RunModifyPlayerSpeed", player, player.cwInfoTable, true);
@@ -635,9 +633,7 @@ function Clockwork.player:SetAction(player, action, duration, priority, Callback
 	if (!player.cwAction) then
 		local curTime = CurTime()
 
-		player:SetNetVar("StartActTime", curTime)
-		player:SetNetVar("ActDuration", duration)
-		player:SetNetVar("ActName", action)
+		player:SetNetVars({{"StartActTime", curTime}, {"ActDuration", duration}, {"ActName", action}})
 
 		if (priority) then
 			player.cwAction = {action, priority}

@@ -905,6 +905,13 @@ local COMMAND = Clockwork.command:New("CharFallOver");
 					
 					return false;
 				end
+				
+				-- Falling over mid-air turned the player into a ragdoll that takes no fall damage.
+				if !player:OnGround() and player:WaterLevel() < 2 then
+					Clockwork.player:Notify(player, "You cannot fall over while in the air!");
+					
+					return false;
+				end
 			
 				--[[
 				local seconds = tonumber(arguments[1]);

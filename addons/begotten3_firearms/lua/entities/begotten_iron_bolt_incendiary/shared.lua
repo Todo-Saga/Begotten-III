@@ -121,7 +121,7 @@ if SERVER then
 		self.lifetime = CurTime() + 30
 		self.InFlight = false
 		timer.Simple(0, function()
-			if IsValid(self) then
+			if IsValid(self) and not self.stuckToDoor then
 				self:SetCollisionGroup(COLLISION_GROUP_WEAPON);
 			end;
 		end);
@@ -137,24 +137,48 @@ if SERVER then
 			if !(Ent:IsValid() or Ent:IsWorld()) then return end
 			if self._hitEntities and self._hitEntities[Ent] then return end
 
+			local isDoor = IsValid(Ent) and Clockwork and Clockwork.entity and Clockwork.entity.IsDoor and Clockwork.entity:IsDoor(Ent);
 
-			if Ent:IsWorld() and self.InFlight then
+			if (Ent:IsWorld() or isDoor) and self.InFlight then
 				self.InFlight = false;
 				self.collided = true;
 				self:StopSound("weapons/throw_swing_03.wav");
 
 				if data.Speed > 500 then
-					local hitPos = data.HitPos - data.HitNormal * 10;
+					local embedDepth = isDoor and 2 or 10;
+					local hitPos = data.HitPos - data.HitNormal * embedDepth;
 					local hitAng = self:GetAngles();
+					local localPos = isDoor and Ent:WorldToLocal(hitPos) or nil;
+					local localAng = isDoor and Ent:WorldToLocalAngles(hitAng) or nil;
 
 					timer.Simple(0, function()
 						if not IsValid(self) then return end;
 
 						local physObj = self:GetPhysicsObject();
-						self:SetPos(hitPos);
-						self:SetAngles(hitAng);
-						if IsValid(physObj) then
-							physObj:EnableMotion(false);
+						if isDoor then
+							if IsValid(Ent) then
+								self.stuckToDoor = true;
+								self:SetPos(Ent:LocalToWorld(localPos));
+								self:SetAngles(Ent:LocalToWorldAngles(localAng));
+								self:SetCollisionGroup(COLLISION_GROUP_DEBRIS);
+								self:PhysicsDestroy();
+								self:SetSolid(SOLID_NONE);
+								self:SetMoveType(MOVETYPE_NONE);
+								self:SetParent(Ent);
+							else
+								self:SetPos(hitPos);
+								self:SetAngles(hitAng);
+								self:SetCollisionGroup(COLLISION_GROUP_WEAPON);
+								if IsValid(physObj) then
+									physObj:EnableMotion(true);
+								end;
+							end;
+						else
+							self:SetPos(hitPos);
+							self:SetAngles(hitAng);
+							if IsValid(physObj) then
+								physObj:EnableMotion(false);
+							end;
 						end;
 					end);
 				else
@@ -264,7 +288,7 @@ if SERVER then
 				self._hitEntities[Ent] = true;
 				self:EmitSound(self.FleshHit[math.random(1, #self.FleshHit)])
 				timer.Simple(0, function()
-					if IsValid(self) and self.InFlight then
+					if IsValid(self) and self.InFlight and not self.stuckToDoor then
 						self:SetCollisionGroup(COLLISION_GROUP_WORLD);
 					end;
 				end);
@@ -342,7 +366,7 @@ if SERVER then
 				self._hitEntities[Ent] = true;
 				local physObj = self:GetPhysicsObject()
 				timer.Simple(0, function()
-					if IsValid(self) and self.InFlight then
+					if IsValid(self) and self.InFlight and not self.stuckToDoor then
 						self:SetCollisionGroup(COLLISION_GROUP_WORLD);
 					end;
 				end);

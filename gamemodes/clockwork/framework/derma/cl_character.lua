@@ -1036,7 +1036,7 @@ function PANEL:Init()
 	self.characterFrameBanner:SetImage("begotten/ui/charactermenu/characterframebanner.png");
 	self.characterFrameBanner:SetSize(374, 600);
 	
-	if factionTable.color then
+	if factionTable and factionTable.color then
 		self.characterFrameBanner:SetImageColor(factionTable.color);
 	else
 		self.characterFrameBanner:SetImageColor(Color(255, 255, 255));
@@ -1075,7 +1075,7 @@ function PANEL:Init()
 	local ranks = Schema.Ranks;
 	
 	if ranks then
-		if (ranks[factionTable.name]) then
+		if (factionTable and ranks[factionTable.name]) then
 			local charRank = self.customData.charTable.rank;
 			local factionTable = Clockwork.faction:FindByID(self.customData.faction);
 			
@@ -1703,7 +1703,7 @@ function PANEL:Init()
 	local ranks = Schema.Ranks;
 	
 	if ranks then
-		if (ranks[factionTable.name]) then
+		if (factionTable and ranks[factionTable.name]) then
 			local charRank = self.customData.charTable.rank or 1;
 			local rankText = ranks[factionTable.name][charRank];
 			

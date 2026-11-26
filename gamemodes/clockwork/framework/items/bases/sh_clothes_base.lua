@@ -90,6 +90,11 @@ local ITEM = item.New(nil, true);
 	
 		if !player:Alive() then
 			bSkipProgressBar = true;
+		elseif self.concealsFace and !player:IsRagdolled() then
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
 		end
 	
 		if extraData == "drop" then
@@ -151,6 +156,10 @@ local ITEM = item.New(nil, true);
 				end
 				
 				if self.concealsFace == true then
+					if player:Alive() then
+						player.cwLastMaskSwap = CurTime();
+					end
+					
 					local helmetItem = player:GetHelmetEquipped();
 					if (!helmetItem or !helmetItem.concealsFace) then
 						player:SetNetVar("faceConcealed", false);
@@ -275,6 +284,15 @@ local ITEM = item.New(nil, true);
 		if !player:Alive() then
 			return false;
 		end;
+		
+		local wornHelmet = player:GetHelmetEquipped();
+		
+		if self.concealsFace or (wornHelmet and wornHelmet.concealsFace) then
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
+		end
 	
 		local action = Clockwork.player:GetAction(player);
 		local faction = player:GetFaction();
@@ -488,6 +506,10 @@ local ITEM = item.New(nil, true);
 					
 					self:OnWear(player);
 					Clockwork.equipment:EquipItem(player, self, "Armor");
+					
+					if self.concealsFace then
+						player.cwLastMaskSwap = CurTime();
+					end
 					
 					hook.Run("PlayerUseItem", player, self, itemEntity);
 					hook.Run("PlayerSetHandsModel", player, player:GetHands());

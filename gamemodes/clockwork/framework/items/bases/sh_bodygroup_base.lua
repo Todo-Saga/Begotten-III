@@ -133,6 +133,13 @@ local ITEM = Clockwork.item:New(nil, true)
 		local clothesItem = player:GetClothesEquipped();
 		local helmetItem = player:GetHelmetEquipped();
 		
+		if self.concealsFace or (clothesItem and clothesItem.concealsFace) then
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
+		end
+		
 		if !Clockwork.player:HasFlags(player, "S") then
 			local faction = player:GetFaction();
 			local subfaction = player:GetSubfaction();
@@ -255,6 +262,10 @@ local ITEM = Clockwork.item:New(nil, true)
 				self:OnWear(player);
 				Clockwork.equipment:EquipItem(player, self, "Helms");
 				
+				if self.concealsFace then
+					player.cwLastMaskSwap = CurTime();
+				end
+				
 				hook.Run("PlayerUseItem", player, self, itemEntity);
 				
 				return true
@@ -278,7 +289,18 @@ local ITEM = Clockwork.item:New(nil, true)
 			return false;
 		end
 	
+		if self.concealsFace and player:Alive() and !player:IsRagdolled() then
+			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
+				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
+				return false;
+			end
+		end
+	
 		if Clockwork.equipment:UnequipItem(player, self) then
+			if player:Alive() and self.concealsFace then
+				player.cwLastMaskSwap = CurTime();
+			end
+			
 			if extraData == "drop" then
 				local trace = player:GetEyeTraceNoCursor()
 

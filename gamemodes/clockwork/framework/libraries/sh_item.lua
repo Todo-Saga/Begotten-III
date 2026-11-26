@@ -1435,11 +1435,21 @@ if (SERVER) then
 			weapon:SetNWInt("ItemID", itemTable.itemID);
 		end;
 
-		-- Unconditional resend every 1-5s (base "last ditch" clientside itemtable desync fix).
-		net.Start("cwWeaponItemData");
-			net.WriteUInt(weapon:EntIndex(), 16);
-			net.WriteTable(item.GetDefinition(itemTable, true));
-		net.Send(player);
+		-- Resend only when the item data changed, with a forced resend every 30s as a desync fallback.
+		local definition = item.GetDefinition(itemTable, true);
+		local signature = util.CRC(util.TableToJSON(definition) or "");
+		local curTime = CurTime();
+
+		if !(weapon.cwLastSyncSig == signature and weapon.cwLastSyncPlayer == player and curTime - (weapon.cwLastSyncTime or 0) < 30) then
+			net.Start("cwWeaponItemData");
+				net.WriteUInt(weapon:EntIndex(), 16);
+				net.WriteTable(definition);
+			net.Send(player);
+
+			weapon.cwLastSyncSig = signature;
+			weapon.cwLastSyncPlayer = player;
+			weapon.cwLastSyncTime = curTime;
+		end
 
 		return math.random(1, 5);
 	end;

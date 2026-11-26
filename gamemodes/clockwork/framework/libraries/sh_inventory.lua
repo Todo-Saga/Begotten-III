@@ -876,7 +876,7 @@ if (SERVER) then
 			return false;
 		end;
 		-- Original repair formula.
-		local replenishment = conditionReplenishment - (((100 - kitCondition) * costMod) * (conditionReplenishment / 100));
+		local replenishment = math.max(0, conditionReplenishment - (((100 - kitCondition) * costMod) * (conditionReplenishment / 100)));
 
 		itemTable:GiveCondition(math.min(replenishment, 100));
 

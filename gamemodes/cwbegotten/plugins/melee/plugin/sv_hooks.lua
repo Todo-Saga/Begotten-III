@@ -467,7 +467,7 @@ function cwMelee:PlayerThink(player, curTime, infoTable, alive, initialized, ply
 			end
 		end
 		
-		if (stability >= max_stability or player:IsRagdolled() or (plyTab.stabilityCooldown and plyTab.stabilityCooldown > curTime)) then
+		if (stability >= max_stability or player:IsRagdolled() or player:GetNWBool("wOS.IsRolling") or (plyTab.stabilityCooldown and plyTab.stabilityCooldown > curTime)) then
 			plyTab.nextStability = curTime + 1;
 			return;
 		end;

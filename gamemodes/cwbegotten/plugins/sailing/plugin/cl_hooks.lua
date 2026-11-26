@@ -241,3 +241,8 @@ end);
 netstream.Hook("DrowningCutscene", function(data)
 	CreateSound(Clockwork.Client, "begotten/score5.mp3"):PlayEx(1, 100);
 end);
+function cwSailing:PlayerCharacterInitialized(data)
+	if IsValid(Clockwork.Client) then
+		Clockwork.Client:ViewPunchReset();
+	end;
+end;

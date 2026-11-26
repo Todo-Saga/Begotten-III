@@ -111,6 +111,11 @@ function ENT:Think()
 				self.nextNPCCheck = nil;
 			end
 		
+			if self.overboardSince then
+				for p in pairs(self.overboardSince) do
+					if not IsValid(p) then self.overboardSince[p] = nil; end;
+				end;
+			end;
 			for i, player in ipairs(self.playersOnBoard) do
 				if IsValid(player) then
 					local playerPos = player:GetPos();
@@ -123,11 +128,21 @@ function ENT:Think()
 						end
 					
 						if playerPos.z <= self:GetPos().z + offset then
-							if !table.HasValue(zones:GetPlayersInZone("sea_"..self.location), player) then
+							local seaPlayers = (self.location and zones and zones.GetPlayersInZone) and zones:GetPlayersInZone("sea_"..self.location) or nil;
+							if not (seaPlayers and table.HasValue(seaPlayers, player)) then
+								if self.overboardSince then self.overboardSince[player] = nil; end;
 								table.remove(self.playersOnBoard, i);
 								
 								break;
 							end
+
+							self.overboardSince = self.overboardSince or {};
+							if not self.overboardSince[player] then
+								self.overboardSince[player] = CurTime();
+								continue;
+							elseif (CurTime() - self.overboardSince[player]) < 0.5 then
+								continue;
+							end;
 							
 							local alive = player:Alive();
 							
@@ -219,8 +234,11 @@ function ENT:Think()
 								end);
 							end
 							
+							if self.overboardSince then self.overboardSince[player] = nil; end;
 							table.remove(self.playersOnBoard, i);
 							break;
+						else
+							if self.overboardSince then self.overboardSince[player] = nil; end;
 						end
 					end
 				end
@@ -450,16 +468,29 @@ end;
 function ENT:OnRemove()
 	if (self.cwInventory and !table.IsEmpty(self.cwInventory) or self.cwCash and self.cwCash > 0) then
 		local belongingsEnt = ents.Create("cw_belongings");
-	
-		belongingsEnt:SetData(self.cwInventory, self.cwCash, "Longship Cargo");
-		belongingsEnt:SetPos(self:GetPos() + Vector(0, 0, 128));
-		belongingsEnt:Spawn();
-		
-		timer.Create("BelongingsTimer_"..belongingsEnt:EntIndex(), 1200, 1, function()
-			if IsValid(self) then
-				self:Remove();
+		if IsValid(belongingsEnt) then
+			belongingsEnt:SetData(self.cwInventory, self.cwCash, "Longship Cargo");
+			local trace = util.TraceHull({
+				start = self:GetPos() + Vector(0, 0, 64),
+				endpos = self:GetPos() + Vector(0, 0, 144),
+				mins = Vector(-16, -16, 0),
+				maxs = Vector(16, 16, 32),
+				filter = self,
+				mask = MASK_SOLID_BRUSHONLY
+			});
+			local spawnPos = trace.HitPos;
+			if (trace.StartSolid or !util.IsInWorld(spawnPos)) then
+				spawnPos = self:GetPos() + Vector(0, 0, 32);
 			end
-		end);
+			belongingsEnt:SetPos(spawnPos);
+			belongingsEnt:Spawn();
+
+			timer.Create("BelongingsTimer_"..belongingsEnt:EntIndex(), 1200, 1, function()
+				if IsValid(belongingsEnt) then
+					belongingsEnt:Remove();
+				end
+			end);
+		end;
 	end
 	
 	if self.spawnedNPCs then

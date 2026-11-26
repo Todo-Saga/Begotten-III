@@ -689,6 +689,7 @@ if SERVER then
 
 	function ENT:HandleStuck()
 		local pos = self:GetPos()
+		local curTime = CurTime()
 
 		local function CanOccupyPos(targetPos)
 			if not util.IsInWorld(targetPos) then return false end
@@ -731,6 +732,35 @@ if SERVER then
 			if pos.z <= -16000 or self._cwOOWStuckFails >= 3 then
 				self:Remove()
 				return
+			end
+		else
+			if self._cwNextStuckRecovery and curTime < self._cwNextStuckRecovery then
+				self:ClearStuck()
+				return
+			end
+
+			local area = navmesh.GetNearestNavArea(pos, false, 500, false, false)
+			if IsValid(area) then
+				local closest = area:GetClosestPointOnArea(pos)
+				if (closest - pos):LengthSqr() > 256 then
+					local validPos = closest + Vector(0, 0, 8)
+					if CanOccupyPos(validPos) then
+						local hullClear = util.TraceHull({
+							start = pos + Vector(0, 0, 8),
+							endpos = validPos,
+							filter = self,
+							mins = self:OBBMins(),
+							maxs = self:OBBMaxs(),
+							mask = MASK_NPCSOLID
+						})
+						if not hullClear.Hit and not hullClear.StartSolid then
+							self._cwNextStuckRecovery = curTime + 1.5
+							self:SetPos(validPos)
+							if self.loco then self.loco:SetVelocity(vector_origin) end
+							self:InvalidatePath()
+						end
+					end
+				end
 			end
 		end
 

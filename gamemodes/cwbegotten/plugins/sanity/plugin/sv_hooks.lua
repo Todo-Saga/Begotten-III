@@ -272,8 +272,12 @@ function cwSanity:EntityTakeDamageNew(entity, damageInfo)
 				local entityPosition = entity:GetPos()
 				
 				if (activeWeapon:IsValid() and activeWeapon:GetClass() != "begotten_fists") then
-					for k, v in pairs (ents.FindInSphere(entityPosition, 768)) do
-						if (!v:IsPlayer() or v == attacker or v == entity) then
+					for _, v in _player.Iterator() do
+						if (v == attacker or v == entity) then
+							continue
+						end
+
+						if (v:GetPos():DistToSqr(entityPosition) > 589824) then
 							continue
 						end
 						
@@ -327,8 +331,12 @@ function cwSanity:PlayerDeath(player, inflictor, attacker)
 			
 			local position = player:GetPos()
 			
-			for k, v in pairs (ents.FindInSphere(position, 768)) do
-				if (!v:IsPlayer() or v == player or v == attacker) then
+			for _, v in _player.Iterator() do
+				if (v == player or v == attacker) then
+					continue
+				end
+
+				if (v:GetPos():DistToSqr(position) > 589824) then
 					continue
 				end
 				
@@ -342,12 +350,9 @@ function cwSanity:PlayerDeath(player, inflictor, attacker)
 					continue
 				end
 				
-				if (Clockwork.entity:CanSeePlayer(player, v)) then
-					local vSanity = v:GetCharacterData("sanity", 100)
-					
-					if (vSanity >= 50) then
-						v:HandleSanity(-0.75)
-					end
+				local vSanity = v:GetCharacterData("sanity", 100)
+				if (vSanity >= 50 and Clockwork.entity:CanSeePlayer(player, v)) then
+					v:HandleSanity(-0.75)
 				end
 			end
 		end
@@ -370,7 +375,7 @@ function cwSanity:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
 		player.enemies = {}
 	end
 	
-	player:SetNetVar("sanity", player:GetCharacterData("sanity", 100));
+	player:SetSanityNetVar(player:GetCharacterData("sanity", 100));
 end
 
 function cwSanity:CanHearClass(listener, speaker, class)
@@ -392,7 +397,7 @@ function cwSanity:OnePlayerHalfSecond(player)
 	local sanity = math.Round(player:GetCharacterData("sanity", 100));
 	
 	if player:GetNetVar("sanity", 100) < sanity then
-		player:SetNetVar("sanity", sanity);
+		player:SetSanityNetVar(sanity);
 	end
 end
 

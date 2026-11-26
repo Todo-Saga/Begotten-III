@@ -18,7 +18,41 @@ local playerMeta = FindMetaTable("Player");
 
 -- A function to get a player's sanity level.
 function playerMeta:GetSanity()
-	return self:GetNetVar("sanity");
+	if (CLIENT and self ~= Clockwork.Client) then
+		local tier = self:GetNetVar("sanityTier");
+		return tier and (tier * 10) or nil;
+	end;
+
+	local sanity = self:GetNetVar("sanity");
+
+	-- Other players only receive a coarse sanity tier (10 point buckets).
+	if (sanity == nil and CLIENT) then
+		local tier = self:GetNetVar("sanityTier");
+
+		if (tier) then
+			return tier * 10;
+		end;
+	end;
+
+	return sanity;
+end;
+
+if (SERVER) then
+	-- Exact sanity is only sent to its owner. Everyone else gets a tier that
+	-- changes at most 10 times across the full range, instead of every tick.
+	function playerMeta:SetSanityNetVar(value)
+		local maxSanity = (self.GetMaxSanity and self:GetMaxSanity()) or 100;
+		value = math.Clamp(math.Round(tonumber(value) or 100), 0, math.max(100, maxSanity));
+		if (self:GetNetVar("sanity") != value) then
+			self:SetLocalVar("sanity", value);
+		end;
+
+		local tier = math.Clamp(math.ceil(value / 10), 0, math.ceil(math.max(100, maxSanity) / 10));
+
+		if (self:GetNetVar("sanityTier") != tier) then
+			self:SetNetVar("sanityTier", tier);
+		end;
+	end;
 end;
 
 -- A function to get the player's sanity level.
@@ -48,7 +82,7 @@ function COMMAND:OnRun(player, arguments)
 		end;
 
 		target:SetCharacterData("sanity", amount);
-		target:SetNetVar("sanity", amount);
+		target:SetSanityNetVar(amount);
 
 		if (player != target)	then
 			Schema:EasyText(player, "cornflowerblue", "["..self.name.."] You have set "..target:Name().."'s sanity to "..amount..".");

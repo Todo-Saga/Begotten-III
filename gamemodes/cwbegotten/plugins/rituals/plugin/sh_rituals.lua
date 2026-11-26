@@ -27,7 +27,7 @@ end
 
 local RITUAL = cwRituals.rituals:New("purifying_stone_rite");
 	RITUAL.name = "(T2) Purifying Stone Rite";
-	RITUAL.description = "Imbueing something with not only purity, but the ability to spread its purified nature to its surroundings is an act of faith practiced by few. Performing this ritual summons a Purifying Stone item. Removes 10 corruption.";
+	RITUAL.description = "Imbuing something with not only purity, but the ability to spread its purified nature to its surroundings is an act of faith practiced by few. Performing this ritual summons a Purifying Stone item. Removes 10 corruption.";
 	RITUAL.onerequiredbelief = {"man_become_beast", "one_with_the_druids", "daring_trout", "shieldwall", "shedskin", "flagellant", "acolyte", "soothsayer", "heretic"}; -- Tier II Shared Ritual
 	
 	RITUAL.requirements = {"light_catalyst", "up_catalyst", "trinity_catalyst"};
@@ -1337,7 +1337,7 @@ RITUAL = cwRituals.rituals:New("regrowth");
 		player:SetNeed("hunger", 0);
 		player:SetNeed("corruption", 0);
 		player:SetNeed("sleep", 0);
-		player:SetNetVar("sanity", 100);
+		player:SetSanityNetVar(100);
 		player:SetCharacterData("sanity", 100);
 		player:SetCharacterData("Stamina", max_stamina);
 		player:SetNWInt("Stamina", max_stamina);
@@ -1431,7 +1431,7 @@ RITUAL = cwRituals.rituals:New("regrowth_target");
 					target:SetNeed("hunger", 0);
 					target:SetNeed("corruption", 0);
 					target:SetNeed("sleep", 0);
-					target:SetNetVar("sanity", 100);
+					target:SetSanityNetVar(100);
 					target:SetCharacterData("sanity", 100);
 					target:SetCharacterData("Stamina", max_stamina);
 					target:SetNWInt("Stamina", max_stamina);

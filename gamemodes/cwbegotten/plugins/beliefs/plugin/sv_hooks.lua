@@ -8,19 +8,19 @@ local melee_test_enabled = false; -- Automatically gives some melee-related beli
 
 -- Called when the player's character data is restored.
 function cwBeliefs:PlayerRestoreCharacterData(player, data)
-	if (!data["experience"]) then
+	if (!isnumber(data["experience"]) or not (data["experience"] >= 0) or data["experience"] == math.huge) then
 		data["experience"] = 0
 	end
 	
-	if (!data["beliefs"]) then
+	if (!istable(data["beliefs"])) then
 		data["beliefs"] = {}
 	end
 	
-	if (!data["points"]) then
+	if (!isnumber(data["points"]) or not (data["points"] >= 0) or data["points"] == math.huge) then
 		data["points"] = 0
 	end
 	
-	if (!data["level"]) then
+	if (!isnumber(data["level"]) or not (data["level"] >= 1) or data["level"] == math.huge) then
 		data["level"] = 1
 	end
 	
@@ -123,7 +123,7 @@ function cwBeliefs:PlayerThink(player, curTime, infoTable, alive, initialized, p
 				local lastZone = player:GetCharacterData("LastZone");
 				local valid_zones = {"scrapper", "caves", "wasteland"};
 				
-				if !player:Crouching() or !player:GetActiveWeapon():GetClass() == "cw_senses" or (!player:GetNetVar("kinisgerCloak") and (!table.HasValue(valid_zones, lastZone) or cwDayNight and cwDayNight.currentCycle ~= "night" and lastZone ~= "caves" and (!cwWeather or cwWeather.weather ~= "bloodstorm"))) then
+				if !player:Crouching() or (!player:GetNetVar("kinisgerCloak") and (!table.HasValue(valid_zones, lastZone) or cwDayNight and cwDayNight.currentCycle ~= "night" and lastZone ~= "caves" and (!cwWeather or cwWeather.weather ~= "bloodstorm"))) then
 					player:Uncloak();
 				else
 					local playerPos = player:GetPos();
@@ -172,10 +172,15 @@ function cwBeliefs:PlayerThink(player, curTime, infoTable, alive, initialized, p
 							if !blockedCloak then
 								player:Cloak();
 							end
-						elseif (plyTab.cloakCooldown - curTime) > 5 then
-							Schema:EasyText(self.Owner, "chocolate", "You are covered in black powder and cannot cloak for another "..math.ceil(plyTab.cloakCooldown - curTime).." seconds!");
-						else
-							Schema:EasyText(self.Owner, "chocolate", "You cannot cloak for another "..math.ceil(plyTab.cloakCooldown - curTime).." seconds!");
+						elseif (!plyTab.cwNextCloakMsg or plyTab.cwNextCloakMsg <= curTime) then
+							-- Throttled: this branch runs every 0.5s while crouching during the cooldown.
+							plyTab.cwNextCloakMsg = curTime + 3;
+
+							if (plyTab.cloakCooldown - curTime) > 5 then
+								Schema:EasyText(player, "chocolate", "You are covered in black powder and cannot cloak for another "..math.ceil(plyTab.cloakCooldown - curTime).." seconds!");
+							else
+								Schema:EasyText(player, "chocolate", "You cannot cloak for another "..math.ceil(plyTab.cloakCooldown - curTime).." seconds!");
+							end
 						end
 					end
 				end
@@ -451,6 +456,23 @@ end;
 function cwBeliefs:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
 	if player.cloaked then
 		player:Uncloak();
+	end
+
+	player.distortedRingProtection = nil;
+	local xp = player:GetCharacterData("experience", 0);
+	if not isnumber(xp) or not (xp >= 0) or xp == math.huge then
+		player:SetCharacterData("experience", 0);
+		player:SetLocalVar("experience", 0);
+	end
+	local points = player:GetCharacterData("points", 0);
+	if not isnumber(points) or not (points >= 0) or points == math.huge then
+		player:SetCharacterData("points", 0);
+		player:SetLocalVar("points", 0);
+	end
+	local level = player:GetCharacterData("level", 1);
+	if not isnumber(level) or not (level >= 1) or level == math.huge then
+		player:SetCharacterData("level", 1);
+		player:SetNetVar("level", 1);
 	end
 end;
 
@@ -928,6 +950,9 @@ function cwBeliefs:EntityTakeDamageNew(entity, damageInfo)
 	if (Clockwork.entity:IsPlayerRagdoll(entity)) then
 		entity = Clockwork.entity:GetPlayer(entity);
 	end;
+	if (!IsValid(entity)) then
+		return;
+	end;
 
 	if entity:IsPlayer() or entity:IsNPC() or entity:IsNextBot() or entity.isTrainingDummy then
 		local entTab = entity:GetTable();
@@ -937,7 +962,13 @@ function cwBeliefs:EntityTakeDamageNew(entity, damageInfo)
 			return;
 		end
 		
+		if (entTab.distortedRingProtection and entTab.distortedRingProtection > CurTime()) then
+			damageInfo:SetDamage(0);
+			return true;
+		end;
+		
 		local newDamage = originalDamage;
+		local attacker = damageInfo:GetAttacker();
 		
 		if entity:IsPlayer() and entity:Alive() and !entity.flagellating then
 			local chance = 0;
@@ -983,9 +1014,7 @@ function cwBeliefs:EntityTakeDamageNew(entity, damageInfo)
 			newDamage = newDamage * 0.75
 		end
 		
-		local attacker = damageInfo:GetAttacker();
-		
-		if (attacker:IsPlayer()) then
+		if (IsValid(attacker) and attacker:IsPlayer()) then
 			local attackerWeapon = damageInfo:GetInflictor();
 			
 			if !attackerWeapon then
@@ -1068,6 +1097,7 @@ function cwBeliefs:EntityTakeDamageNew(entity, damageInfo)
 											end
 											
 											entTab.distortedRingFired = true;
+											entTab.distortedRingProtection = CurTime() + 1;
 											
 											if entTab.opponent then
 												entTab.distortedRingFiredDuel = true;
@@ -1444,11 +1474,19 @@ end;
 
 -- Called after all armor and melee effects have been created.
 function cwBeliefs:FuckMyLife(entity, damageInfo)
+	if not IsValid(entity) then return end;
+	local targetEntity = Clockwork.entity:IsPlayerRagdoll(entity) and Clockwork.entity:GetPlayer(entity) or entity;
 	local attacker = damageInfo:GetAttacker();
 	local damage = damageInfo:GetDamage() or 0;
 	local entTab = entity:GetTable();
+	local targetTab = IsValid(targetEntity) and targetEntity:GetTable() or entTab;
+
+	if (targetTab.distortedRingProtection and targetTab.distortedRingProtection > CurTime()) then
+		damageInfo:SetDamage(0);
+		return true;
+	end;
 	
-	if (attacker:IsPlayer()) then
+	if (IsValid(attacker) and attacker:IsPlayer()) then
 		if entity:IsPlayer() and not entTab.cwWakingUp then
 			if damage > 0 then
 				if attacker:IsOnFire() and attacker:HasBelief("extinctionist") then
@@ -1700,11 +1738,12 @@ function cwBeliefs:FuckMyLife(entity, damageInfo)
 					end
 					
 					-- Add a 1 second delay to taking more damage.
-					entTab.distortedRingFired = true;
+					targetTab.distortedRingFired = true;
+					targetTab.distortedRingProtection = CurTime() + 1;
 					
-					timer.Create("DistortedRingTimer_"..entity:EntIndex(), 1, 1, function()
-						if IsValid(entity) then
-							entity.distortedRingFired = nil;
+					timer.Create("DistortedRingTimer_"..targetEntity:EntIndex(), 1, 1, function()
+						if IsValid(targetEntity) then
+							targetEntity.distortedRingFired = nil;
 						end
 					end);
 					
@@ -1724,15 +1763,16 @@ function cwBeliefs:FuckMyLife(entity, damageInfo)
 						entity:TakeItem(itemTable, true);
 					end
 					
-					entTab.distortedRingFired = true;
+					targetTab.distortedRingFired = true;
+					targetTab.distortedRingProtection = CurTime() + 1;
 					
 					if entTab.opponent then
 						entTab.distortedRingFiredDuel = true;
 					end
 					
-					timer.Create("DistortedRingTimer_"..entity:EntIndex(), 1, 1, function()
-						if IsValid(entity) then
-							entity.distortedRingFired = nil;
+					timer.Create("DistortedRingTimer_"..targetEntity:EntIndex(), 1, 1, function()
+						if IsValid(targetEntity) then
+							targetEntity.distortedRingFired = nil;
 						end
 					end);
 

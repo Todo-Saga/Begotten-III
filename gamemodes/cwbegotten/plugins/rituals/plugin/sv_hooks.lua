@@ -175,8 +175,22 @@ function cwRituals:PerformRitual(player, uniqueID, itemIDs, bIgnoreItems, bIgnor
 						
 						Clockwork.player:SetAction(player, "ritualing", ritualTable.ritualTime, 5, function()
 							if (IsValid(player)) then
+								if (!bIgnoreItems and !self:PlayerMeetsRitualItemRequirements(player, ritualTable, itemIDs)) then
+									player:StopSound("prototype/transform.mp3");
+									local ragdoll = player:GetRagdollEntity();
+									if IsValid(ragdoll) then
+										ragdoll:StopSound("prototype/transform.mp3");
+									end
+									return;
+								end;
+
 								if (ritualTable.EndRitual) then
 									if ritualTable:EndRitual(player) == false then
+										player:StopSound("prototype/transform.mp3");
+										local ragdoll = player:GetRagdollEntity();
+										if IsValid(ragdoll) then
+											ragdoll:StopSound("prototype/transform.mp3");
+										end
 										return;
 									end
 								end;
@@ -971,7 +985,24 @@ function cwRituals:PlayerRagdolled(player, state, ragdoll)
 	
 	if (action == "ritualing" or action == "hell_teleporting" or action == "filling_bucket" or action == "filling_bottle") then
 		Clockwork.player:SetAction(player, nil);
+		player:StopSound("prototype/transform.mp3");
+		local ragdollEnt = (istable(ragdoll) and IsValid(ragdoll.entity) and ragdoll.entity) or (IsValid(ragdoll) and ragdoll) or (IsValid(player) and player:GetRagdollEntity());
+		if IsValid(ragdollEnt) then
+			ragdollEnt:StopSound("prototype/transform.mp3");
+		end
 	end
+end;
+
+-- Called when an action is cancelled or stopped.
+function cwRituals:ActionStopped(player, action)
+	if (!IsValid(player)) then return; end;
+	if (action == "ritualing" or action == "hell_teleporting") then
+		player:StopSound("prototype/transform.mp3");
+		local ragdoll = player:GetRagdollEntity();
+		if IsValid(ragdoll) then
+			ragdoll:StopSound("prototype/transform.mp3");
+		end
+	end;
 end;
 
 function cwRituals:ModifyPlayerSpeed(player, infoTable, action)
@@ -1137,7 +1168,29 @@ netstream.Hook("AppearanceAlterationMenu", function(player, data)
 							
 							if (Schema.Ranks[selectedFaction]) then
 								local factionTable = Clockwork.faction:FindByID(selectedFaction);
-								local subfaction = player:GetSubfaction();
+								local subfaction = selectedSubfaction;
+								if ((not subfaction or subfaction == "" or subfaction == "N/A") and factionTable and factionTable.subfactions) then
+									if (selectedFaction == player:GetNetVar("kinisgerOverride")) then
+										local overrideSub = player:GetNetVar("kinisgerOverrideSubfaction");
+										if (overrideSub and overrideSub ~= "") then
+											for _, isub in ipairs(factionTable.subfactions) do
+												if (isub.name == overrideSub) then
+													subfaction = overrideSub;
+													break;
+												end;
+											end;
+										end;
+									end;
+									if (not subfaction or subfaction == "" or subfaction == "N/A") then
+										local plySub = player:GetSubfaction();
+										for _, isub in ipairs(factionTable.subfactions) do
+											if (isub.name == plySub) then
+												subfaction = plySub;
+												break;
+											end;
+										end;
+									end;
+								end;
 								local subfactionRankFound = false;
 								
 								if subfaction and subfaction ~= "" and subfaction ~= "N/A" then

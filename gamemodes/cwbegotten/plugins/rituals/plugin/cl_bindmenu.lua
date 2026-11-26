@@ -1,3 +1,11 @@
+local matCache = {};
+local function GetCachedMaterial(path)
+    if not isstring(path) then return nil; end;
+    if not matCache[path] then
+        matCache[path] = Material(path);
+    end;
+    return matCache[path];
+end;
 local pentagram = Material("begotten/pentagram.png");
 local button = Material("begotten/ui/bgtbtnrit1.png");
 local textColor = Color(180, 15, 15);
@@ -184,8 +192,11 @@ local function DrawButton(x, y, size, text, index, uniqueID, items)
             end
 
             surface.SetDrawColor(ColorAlpha(hasItem and hasItemColor or noItemColor, Lerp(alphaFrac, hasItem and 245 or 150, 0)):Darken(diff));
-            surface.SetMaterial(Material(item.iconoverride))
-            surface.DrawTexturedRectRotated(GetScaledX2(x, size, i, #items), y + 5, 60, 60, 0);
+            local itemMat = GetCachedMaterial(item.iconoverride);
+            if itemMat then
+                surface.SetMaterial(itemMat);
+                surface.DrawTexturedRectRotated(GetScaledX2(x, size, i, #items), y + 5, 60, 60, 0);
+            end
 
         end
         
@@ -318,8 +329,11 @@ hook.Add("HUDPaint", "RadialShitballs", function()
             local x = GetScaledX3(index, table.Count(items));
 
             surface.SetDrawColor(ColorAlpha(color_white, alpha));
-            surface.SetMaterial(Material(item.iconoverride));
-            surface.DrawTexturedRectRotated(x, scrH * 0.9, 60, 60, 0);
+            local itemMat = GetCachedMaterial(item.iconoverride);
+            if itemMat then
+                surface.SetMaterial(itemMat);
+                surface.DrawTexturedRectRotated(x, scrH * 0.9, 60, 60, 0);
+            end
             
             draw.SimpleTextOutlined(v, "ritual_radial_small", x + 20, scrH * 0.9 + 15, ColorAlpha(color_white, alpha), TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER, 2, ColorAlpha(color_black, Lerp(alphaFrac, 255, 0)));
 

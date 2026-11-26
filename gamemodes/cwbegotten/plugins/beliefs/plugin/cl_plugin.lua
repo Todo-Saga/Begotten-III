@@ -2,6 +2,7 @@
 	Begotten 3
 	Created by cash wednesday, gabs, DETrooper and alyousha35
 --]]
+cwBeliefs.matCache = cwBeliefs.matCache or {};
 
 config.AddToSystem("Faith Modifier", "xp_modifier", "The amount to faith (XP) gain by.", 0.5, 10, 2);
 config.AddToSystem("Minimum Character Lifetime for Damage & Kill XP", "min_xp_charplaytime", "The minimum playtime (in seconds) a character has to achieve for others to get damage and kill XP off of them.", 0, 6000)
@@ -25,9 +26,13 @@ function cwBeliefs:DrawTreeBackground(x, y, width, height, panel)
 	if (panel.texture) then
 		material = "begotten/ui/menu/"..panel.texture..".png";
 	end;
+	if (not isstring(material)) then return; end;
 
 	surface.SetDrawColor(255, 255, 255, panel.alpha);
-	surface.SetMaterial(Material(material));
+	if not cwBeliefs.matCache[material] then
+		cwBeliefs.matCache[material] = Material(material);
+	end;
+	surface.SetMaterial(cwBeliefs.matCache[material]);
 	surface.DrawTexturedRect(x, y, width, height);
 end;
 

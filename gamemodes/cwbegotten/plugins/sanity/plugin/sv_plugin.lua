@@ -32,7 +32,7 @@ function playerMeta:HandleSanity(amount)
 	local subfaction = self:GetSubfaction();
 	
 	if subfaction == "Rekh-khet-sa" then
-		self:SetNetVar("sanity", 100);
+		self:SetSanityNetVar(100);
 		self:SetCharacterData("sanity", 100);
 		return;
 	elseif subfaction == "Varazdat" then
@@ -89,7 +89,7 @@ function playerMeta:HandleSanity(amount)
 		player.moonCooldown = CurTime() + 125;
 	end
 
-	self:SetNetVar("sanity", newSanity);
+	self:SetSanityNetVar(newSanity);
 	self:SetCharacterData("sanity", newSanity)
 end
 
@@ -105,15 +105,24 @@ end
 
 -- A function to get if the player is alone.
 function playerMeta:IsAlone(requiredDistance)
-	local position = self:GetPosition();
-	
-	for k, v in pairs (ents.FindInSphere(position, requiredDistance)) do
-		if v:IsPlayer() and v:GetFaith() == self:GetFaith() then
-			return true;
-		end
-	end
-	
-	return false;
+	local position = self:GetPos();
+	local selfFaction = self:GetFaction();
+	local selfFaith = self:GetFaith();
+	local hasValidFaith = selfFaith and selfFaith ~= "" and selfFaith ~= "Faithless";
+	local distSqr = (requiredDistance or 256) * (requiredDistance or 256);
+
+	for _, v in _player.Iterator() do
+		if (v ~= self and v:HasInitialized() and v:Alive() and not v.cloaked and not v.cwObserverMode and v:GetMoveType() ~= MOVETYPE_NOCLIP and v:GetPos():DistToSqr(position) <= distSqr) then
+			local vOverride = v:GetNetVar("kinisgerOverride");
+			local vFaction = (vOverride and vOverride ~= "") and vOverride or v:GetFaction();
+
+			if ((selfFaction ~= "Wanderer" and vFaction == selfFaction) or (hasValidFaith and v:GetFaith() == selfFaith)) then
+				return false;
+			end;
+		end;
+	end;
+
+	return true;
 end
 
 -- A function to get if the player is an enemy of another.

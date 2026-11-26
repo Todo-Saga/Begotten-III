@@ -7,6 +7,11 @@ local playerMeta = FindMetaTable("Player");
 
 -- A function to add to a player's experience count.
 function playerMeta:HandleXP(amount, bIgnoreModifiers)
+	-- Ignore NaN, infinite or non-numeric amounts so they can never reach saved experience.
+	if (!isnumber(amount) or amount ~= amount or amount == math.huge or amount == -math.huge) then
+		return;
+	end
+	
 	if (!self:GetCharacterData("experience")) then
 		self:SetCharacterData("experience", 0)
 	end
@@ -147,7 +152,10 @@ function playerMeta:HasBelief(uniqueID, bHasAny)
 		return true;
 	end
 	
-	local beliefs = self:GetCharacterData("beliefs", {});
+	local beliefs = self:GetCharacterData("beliefs");
+	if (!beliefs) then
+		return false;
+	end;
 	
 	if istable(uniqueID) then
 		if bHasAny then

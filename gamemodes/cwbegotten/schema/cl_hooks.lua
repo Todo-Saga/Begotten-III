@@ -1146,7 +1146,7 @@ end
 
 -- Called when the target's sanity level should be drawn.
 function Schema:DrawTargetSanityLevel(target, alpha, x, y)
-	local targetSanity = target:GetNetVar("sanity", 100)
+	local targetSanity = target:GetNetVar("sanityTier", 10) * 10
 	local playerHasBelief = Clockwork.Client:HasBelief("blank_stare")
 
 	if(target:GetSharedVar("isThrall")) or !playerHasBelief then return; end

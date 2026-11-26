@@ -18,7 +18,34 @@ local playerMeta = FindMetaTable("Player");
 
 -- A function to get a player's sanity level.
 function playerMeta:GetSanity()
-	return self:GetNetVar("sanity");
+	local sanity = self:GetNetVar("sanity");
+
+	-- Other players only receive a coarse sanity tier (10 point buckets).
+	if (sanity == nil and CLIENT) then
+		local tier = self:GetNetVar("sanityTier");
+
+		if (tier) then
+			return tier * 10;
+		end;
+	end;
+
+	return sanity;
+end;
+
+if (SERVER) then
+	-- Exact sanity is only sent to its owner. Everyone else gets a tier that
+	-- changes at most 10 times across the full range, instead of every tick.
+	function playerMeta:SetSanityNetVar(value)
+		if (self:GetNetVar("sanity") != value) then
+			self:SetLocalVar("sanity", value);
+		end;
+
+		local tier = math.max(1, math.ceil(value / 10));
+
+		if (self:GetNetVar("sanityTier") != tier) then
+			self:SetNetVar("sanityTier", tier);
+		end;
+	end;
 end;
 
 -- A function to get the player's sanity level.
@@ -48,7 +75,7 @@ function COMMAND:OnRun(player, arguments)
 		end;
 
 		target:SetCharacterData("sanity", amount);
-		target:SetNetVar("sanity", amount);
+		target:SetSanityNetVar(amount);
 
 		if (player != target)	then
 			Schema:EasyText(player, "cornflowerblue", "["..self.name.."] You have set "..target:Name().."'s sanity to "..amount..".");

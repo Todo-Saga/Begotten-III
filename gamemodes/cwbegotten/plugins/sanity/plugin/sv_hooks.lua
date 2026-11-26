@@ -375,7 +375,7 @@ function cwSanity:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
 		player.enemies = {}
 	end
 	
-	player:SetNetVar("sanity", player:GetCharacterData("sanity", 100));
+	player:SetSanityNetVar(player:GetCharacterData("sanity", 100));
 end
 
 function cwSanity:CanHearClass(listener, speaker, class)
@@ -397,7 +397,7 @@ function cwSanity:OnePlayerHalfSecond(player)
 	local sanity = math.Round(player:GetCharacterData("sanity", 100));
 	
 	if player:GetNetVar("sanity", 100) < sanity then
-		player:SetNetVar("sanity", sanity);
+		player:SetSanityNetVar(sanity);
 	end
 end
 

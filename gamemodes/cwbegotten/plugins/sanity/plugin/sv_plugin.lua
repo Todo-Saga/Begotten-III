@@ -32,7 +32,7 @@ function playerMeta:HandleSanity(amount)
 	local subfaction = self:GetSubfaction();
 	
 	if subfaction == "Rekh-khet-sa" then
-		self:SetNetVar("sanity", 100);
+		self:SetSanityNetVar(100);
 		self:SetCharacterData("sanity", 100);
 		return;
 	elseif subfaction == "Varazdat" then
@@ -89,10 +89,7 @@ function playerMeta:HandleSanity(amount)
 		player.moonCooldown = CurTime() + 125;
 	end
 
-	local roundedSanity = math.ceil(newSanity);
-	if (self:GetNetVar("sanity") != roundedSanity) then
-		self:SetNetVar("sanity", roundedSanity);
-	end;
+	self:SetSanityNetVar(math.ceil(newSanity));
 	self:SetCharacterData("sanity", newSanity)
 end
 

@@ -430,7 +430,7 @@ Clockwork.kernel:AddESPItem("stamina", {
 
 Clockwork.kernel:AddESPItem("sanity", {
 	name = "Sanity",
-	var = "sanity",
+	var = function(player) return player:GetSanity() or ""; end,
 	max = 100,
 	color = Color(80, 60, 80),
 	default = false,

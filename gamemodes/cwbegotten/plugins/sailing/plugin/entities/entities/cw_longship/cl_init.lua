@@ -7,6 +7,8 @@
 
 Clockwork.kernel:IncludePrefixed("shared.lua")
 
+PrecacheParticleSystem("fire_large_02");
+
 -- Called when the target ID HUD should be painted.
 function ENT:HUDPaintTargetID(x, y, alpha)
 	local name = self:GetNWString("name");
@@ -23,7 +25,9 @@ function ENT:Think()
 		local curTime = CurTime();
 		
 		if !self.nextBurnCheck or self.nextBurnCheck < curTime then
-			if !self.Particles then
+			-- The engine destroys the effect when the ship goes dormant, leaving a NULL handle behind,
+			-- so recreate it whenever the old one is no longer valid.
+			if !self.Particles or !self.Particles:IsValid() then
 				self.Particles = CreateParticleSystem(self, "fire_large_02", 1, 0, Vector(0, 0, 16));
 			end
 		
@@ -34,7 +38,7 @@ function ENT:Think()
 				end
 			else 
 				if self.Particles then
-					self.Particles:StopEmissionAndDestroyImmediately();
+					if self.Particles:IsValid() then self.Particles:StopEmissionAndDestroyImmediately(); end
 					self.Particles = nil;
 				end
 			
@@ -48,7 +52,7 @@ function ENT:Think()
 		end
 	else
 		if self.Particles then
-			self.Particles:StopEmissionAndDestroyImmediately();
+			if self.Particles:IsValid() then self.Particles:StopEmissionAndDestroyImmediately(); end
 			self.Particles = nil;
 		end
 	
@@ -61,7 +65,7 @@ end
 
 function ENT:OnRemove()
 	if self.Particles then
-		self.Particles:StopEmissionAndDestroyImmediately();
+		if self.Particles:IsValid() then self.Particles:StopEmissionAndDestroyImmediately(); end
 		self.Particles = nil;
 	end
 	

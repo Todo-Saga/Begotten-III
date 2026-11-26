@@ -92,7 +92,7 @@ function cwDayNight:PlayerThink(player, curTime, infoTable, alive, initialized, 
 										end
 									end
 									
-									if player:GetRagdollState() == RAGDOLL_KNOCKEDOUT then
+									if player:IsRagdolled() then
 										return;
 									end
 									

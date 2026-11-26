@@ -49,7 +49,8 @@ end
 --]]
 
 --[[ Set the __index meta function of the class. --]]
-local CLASS_TABLE = {__index = CLASS_TABLE};
+local CLASS_TABLE = {};
+CLASS_TABLE.__index = CLASS_TABLE;
 
 CLASS_TABLE.name = "Item Base";
 CLASS_TABLE.skin = 0;

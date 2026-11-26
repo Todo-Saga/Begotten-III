@@ -77,6 +77,27 @@ do
 		return item.GetInstances()
 	end;
 
+	function Clockwork.item:GetClothesModel(clothesItem, gender)
+		if self ~= Clockwork.item and not gender then
+			gender = clothesItem;
+			clothesItem = self;
+		end;
+		if item.GetClothesModel then
+			return item.GetClothesModel(clothesItem, gender);
+		end;
+	end;
+
+	function Clockwork.item:IsValidModelCached(modelPath)
+		if self ~= Clockwork.item and not modelPath then
+			modelPath = self;
+		end;
+		if not modelPath or type(modelPath) ~= "string" then return false end;
+		if item.IsValidModelCached then
+			return item.IsValidModelCached(modelPath);
+		end;
+		return util.IsValidModel(modelPath);
+	end;
+
 	function Clockwork.item:HasSameDataAs(itemTable)
 		return item.HasSameDataAs(itemTable)
 	end;

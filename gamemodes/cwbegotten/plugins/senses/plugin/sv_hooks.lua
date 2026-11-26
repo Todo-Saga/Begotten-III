@@ -40,6 +40,15 @@ end;
 
 -- Called just after a player spawns.
 function cwSenses:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
+	-- Getting up from a ragdoll is a light spawn; keep Senses, thermals and night vision on through it.
+	if lightSpawn and player.sensesOn then
+		if player:GetNetVar("senses") and !player:GetNetVar("hasThermal") and !player:GetNetVar("hasNV") then
+			player:SetDSP(114);
+		end
+		
+		return;
+	end
+	
 	if player:GetNetVar("senses") then
 		player:SetLocalVar("senses", false);
 		player:SetDSP(0);

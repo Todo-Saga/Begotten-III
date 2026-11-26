@@ -179,6 +179,16 @@ function ENT:Think()
 		end;
 	end;]]--
 	
+	if (not util.IsInWorld(self:GetPos())) then
+		self._cwOutOfWorldCount = (self._cwOutOfWorldCount or 0) + 1;
+		if (self._cwOutOfWorldCount >= 2) then
+			self:Remove();
+			return;
+		end;
+	else
+		self._cwOutOfWorldCount = nil;
+	end;
+
 	hook.Run("ItemEntityThink", self, itemTable);
 
 	self.lastThink = curTime;

@@ -582,10 +582,25 @@ function cwRecipes:IsAreaClear(position, bPile)
 		end;
 	end;
 	
+	local pvsPos = position + Vector(0, 0, 24);
 	for _, v in _player.Iterator() do
 		if (v:IsAdmin() or !v:Alive()) then
 			continue;
 		end;
+		
+		if (v:GetPos():DistToSqr(position) > 6250000) then
+			continue;
+		end;
+
+		if not v:TestPVS(pvsPos) then
+			continue;
+		end
+
+		local diff = pvsPos - v:GetShootPos();
+		local lenSq = diff:LengthSqr();
+		if lenSq >= 262144 and v:GetAimVector():Dot(diff:GetNormalized()) < 0.2 then
+			continue;
+		end
 		
 		if (Clockwork.entity:CanSeePosition(v, position)) then
 			return false;

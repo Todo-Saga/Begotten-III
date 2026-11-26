@@ -3479,6 +3479,10 @@ end
 
 -- A function to save a players's data.
 function Clockwork.player:SaveData(player, bCreate)
+	if (IsValid(player) and player:IsBot()) then
+		return {}
+	end
+
 	local lenderSteamID = player:GetLender();
 
 	if (!bCreate) then
@@ -3536,6 +3540,13 @@ end
 
 -- A function to save a player's character.
 function Clockwork.player:SaveCharacter(player, bCreate, character, Callback)
+	if (IsValid(player) and player:IsBot()) then
+		if (Callback) then
+			Callback(0)
+		end
+		return
+	end
+
 	if (bCreate) then
 		local charactersTable = config.Get("mysql_characters_table"):Get()
 		local values = ""

@@ -867,7 +867,7 @@ function Clockwork.kernel:PrintLog(logType, text)
 	end
 
 	if (game.IsDedicated()) then
-		self:ServerLog(text, logType == LOGTYPE_CRITICAL)
+		self:ServerLog(text)
 	end
 end
 

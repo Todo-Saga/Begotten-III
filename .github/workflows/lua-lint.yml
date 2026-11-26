@@ -1,26 +1,42 @@
 name: Lua lint
 
-# One lightweight job: GLua syntax check (blocking) + glualint (report only).
-# No GitHub API calls; the only network fetch is the glualint release zip,
-# which is cached after the first run.
+# GLua syntax check (blocking) + glualint (report only).
+# - push / pull_request: lints the pushed commit.
+# - schedule (hourly) / manual with "all branches": lints every branch on this
+#   fork whose tip has not been linted yet, so PR branches get checked without
+#   carrying this workflow file. Already-linted SHAs are remembered in the
+#   Actions cache, so an hour with no new pushes costs a ~10 s no-op.
+# - manual with a ref: lints just that branch/tag/SHA.
+# No GitHub REST API calls; branch discovery uses `git ls-remote`.
+# How to run it / read results: see AGENTS.md at the repo root.
 
 on:
   push:
-    paths: ['**.lua', '.github/glualint.json', '.github/workflows/lua-lint.yml']
+    paths: ['**.lua', '.github/glualint.json', '.github/scripts/lua-lint.sh', '.github/workflows/lua-lint.yml']
   pull_request:
-    paths: ['**.lua', '.github/glualint.json', '.github/workflows/lua-lint.yml']
+    paths: ['**.lua', '.github/glualint.json', '.github/scripts/lua-lint.sh', '.github/workflows/lua-lint.yml']
+  schedule:
+    - cron: '17 * * * *'
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Branch, tag or SHA to lint (lets you check PR branches without adding this file to them)'
+        description: 'Branch, tag or SHA to lint (empty = this branch)'
         required: false
         default: ''
+      all_branches:
+        description: 'Lint every branch on the fork (ignores ref; skips already-linted tips unless force)'
+        type: boolean
+        default: false
+      force:
+        description: 'With all_branches: re-lint tips even if already linted'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 concurrency:
-  group: lua-lint-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  group: lua-lint-${{ (github.event_name == 'schedule' || inputs.all_branches) && 'all-branches' || github.event.pull_request.number || inputs.ref || github.ref }}
   cancel-in-progress: true
 
 env:
@@ -28,6 +44,7 @@ env:
 
 jobs:
   lint:
+    if: github.event_name != 'schedule' && !inputs.all_branches
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -39,8 +56,8 @@ jobs:
           persist-credentials: false
 
       - name: Check out lint config
-        # Config comes from the commit that holds this workflow, so a
-        # dispatched ref without .github/ still gets linted the same way.
+        # Config/script come from the commit holding this workflow, so a
+        # dispatched ref without .github/ is linted the same way.
         uses: actions/checkout@v4
         with:
           path: cfg
@@ -63,60 +80,103 @@ jobs:
           unzip -o -q /tmp/glualint.zip -d ~/glualint
           chmod +x ~/glualint/glualint
 
-      - name: Normalise CR CR LF line endings
-        # Some files end lines with \r\r\n. LuaJIT/GMod read them fine, but
-        # glualint reports a false parse error, so fix them in the CI copy only.
-        working-directory: src
-        run: |
-          grep -rlIZ --include='*.lua' $'\r\r' . | xargs -0 -r perl -pi -e 's/\r+\n/\n/g'
-
       - name: GLua syntax check and lint
-        working-directory: src
-        run: |
-          set +e
-          ~/glualint/glualint --config ../cfg/.github/glualint.json \
-            lint --output-format github . > ../lint.log 2>&1
-          set -e
-
-          # Drop the SWEP "self.Weapon is the same as self" style note (~1.2k hits).
-          grep -v "is the same as just" ../lint.log > ../lint.filtered || true
-
-          # Annotations (GitHub shows the first 10 warnings / 10 errors per step).
-          grep '^::' ../lint.filtered || true
-
-          errors=$(grep -c '^::error' ../lint.filtered || true)
-          warnings=$(grep -c '^::warning' ../lint.filtered || true)
-          {
-            echo "## Lua lint"
-            echo
-            echo "| Check | Count |"
-            echo "|---|---|"
-            echo "| Parse errors (blocking) | ${errors} |"
-            echo "| Lint warnings (report only) | ${warnings} |"
-            echo
-            if [ "$errors" -gt 0 ]; then
-              echo "### Parse errors"
-              grep '^::error' ../lint.filtered | sed -E 's/^::error file=([^,]*),line=([0-9]+).*::(.*)/- `\1:\2` \3/'
-              echo
-            fi
-            echo "### Warnings by type"
-            echo
-            echo "| Type | Count |"
-            echo "|---|---|"
-            grep '^::warning' ../lint.filtered | sed -E 's/.*title="([^"]*)".*/\1/' \
-              | sort | uniq -c | sort -rn | awk '{c=$1; $1=""; sub(/^ /,""); print "| " $0 " | " c " |"}'
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          if [ "$errors" -gt 0 ]; then
-            echo "::error::${errors} GLua parse error(s); see the job summary."
-            exit 1
-          fi
+        run: cfg/.github/scripts/lua-lint.sh src "${{ inputs.ref || github.head_ref || github.ref_name }}"
 
       - name: Upload full lint log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: glualint-log
-          path: lint.filtered
+          path: lint-*.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+  lint-branches:
+    if: github.event_name == 'schedule' || inputs.all_branches
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out lint config
+        uses: actions/checkout@v4
+        with:
+          path: cfg
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Restore list of already-linted tips
+        uses: actions/cache/restore@v4
+        with:
+          path: linted-shas.txt
+          key: linted-shas-${{ github.run_id }}
+          restore-keys: linted-shas-
+
+      - name: Find branch tips not yet linted
+        id: find
+        env:
+          FORCE: ${{ inputs.force && 'true' || 'false' }}
+        run: |
+          touch linted-shas.txt
+          [ "$FORCE" = true ] && : > linted-shas.txt
+          git ls-remote --heads "https://github.com/${GITHUB_REPOSITORY}.git" \
+            | awk '{sub("refs/heads/","",$2); print $1, $2}' | sort -u -k1,1 > heads.txt
+          grep -vFf <(cut -c1-40 linted-shas.txt) heads.txt > todo.txt || true
+          echo "Branches to lint:"; cat todo.txt
+          echo "count=$(wc -l < todo.txt)" >> "$GITHUB_OUTPUT"
+          if [ ! -s todo.txt ]; then
+            echo "No new branch tips since the last run." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Cache glualint
+        if: steps.find.outputs.count != '0'
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/glualint
+          key: glualint-${{ env.GLUALINT_VERSION }}-linux
+
+      - name: Download glualint
+        if: steps.find.outputs.count != '0' && steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/glualint
+          curl -fsSL --retry 3 -o /tmp/glualint.zip \
+            "https://github.com/FPtje/GLuaFixer/releases/download/${GLUALINT_VERSION}/glualint-${GLUALINT_VERSION}-x86_64-linux.zip"
+          unzip -o -q /tmp/glualint.zip -d ~/glualint
+          chmod +x ~/glualint/glualint
+
+      - name: Lint each new tip
+        if: steps.find.outputs.count != '0'
+        run: |
+          failed=0
+          mkdir -p work
+          while read -r sha branch; do
+            echo "::group::$branch ($sha)"
+            rm -rf work/src
+            git -c advice.detachedHead=false clone -q --depth 1 --branch "$branch" \
+              "https://github.com/${GITHUB_REPOSITORY}.git" work/src
+            cfg/.github/scripts/lua-lint.sh work/src "$branch" || failed=1
+            # Recorded either way, so a broken tip fails one run (one email),
+            # not every hour. Pushing a fix creates a new tip, which is linted.
+            echo "$sha $branch" >> linted-shas.txt
+            echo "::endgroup::"
+          done < todo.txt
+          # Keep the list small: only SHAs that are still branch tips.
+          grep -Ff <(cut -d' ' -f1 heads.txt) linted-shas.txt | sort -u > l.tmp || true
+          mv l.tmp linted-shas.txt
+          exit $failed
+
+      - name: Save list of linted tips
+        if: always() && steps.find.outputs.count != '0'
+        uses: actions/cache/save@v4
+        with:
+          path: linted-shas.txt
+          key: linted-shas-${{ github.run_id }}
+
+      - name: Upload lint logs
+        if: always() && steps.find.outputs.count != '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: glualint-logs-all-branches
+          path: work/lint-*.log
           retention-days: 7
           if-no-files-found: ignore

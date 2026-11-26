@@ -135,17 +135,19 @@ end
 function Clockwork.entity:IsInBox(entity, minimum, maximum)
 	local position = entity:GetPos()
 
-	if (entity:IsPlayer() or entity:IsNPC() or entitiy:IsNextBot()) then
+	if (entity:IsPlayer() or entity:IsNPC() or entity:IsNextBot()) then
 		position = entity:GetShootPos()
 	end
 
-	if ((position.x >= math.min(minimum.x, maximum.x) and position.x <= math.max(minimum.x, maximum.x))
-	and (position.y >= math.min(minimum.y, maximum.y) and position.y <= math.max(minimum.y, maximum.y))
-	and (position.z >= math.min(minimum.z, maximum.z) and position.z <= math.max(minimum.z, maximum.z))) then
-		return true
-	else
-		return false
-	end
+	local minX, maxX = minimum.x, maximum.x;
+	if minX > maxX then minX, maxX = maxX, minX; end;
+	local minY, maxY = minimum.y, maximum.y;
+	if minY > maxY then minY, maxY = maxY, minY; end;
+	local minZ, maxZ = minimum.z, maximum.z;
+	if minZ > maxZ then minZ, maxZ = maxZ, minZ; end;
+
+	local px, py, pz = position.x, position.y, position.z;
+	return (px >= minX and px <= maxX and py >= minY and py <= maxY and pz >= minZ and pz <= maxZ);
 end
 
 --[[
@@ -470,7 +472,7 @@ if (CLIENT) then
 		@returns Bool Whether or not the item data has been fetched.
 	--]]
 	function Clockwork.entity:HasFetchedItemData(entity)
-		return (entity.cwFetchedItemData == true)
+		return (entity.cwFetchedItemData == true and entity.cwItemTable ~= nil)
 	end
 
 	--[[
@@ -510,10 +512,21 @@ if (CLIENT) then
 
         local definition = net.ReadTable();
 
-        entity.cwFetchedItemData = true
-        entity.cwItemTable = item.CreateInstance(
-            definition.index, definition.itemID, definition.data
-        );
+        if (definition and definition.index) then
+            local instance = item.CreateInstance(
+                definition.index, definition.itemID, definition.data
+            );
+            if (instance) then
+                entity.cwFetchedItemData = true;
+                entity.cwItemTable = instance;
+                entity.m_iFetchRetries = nil;
+                return;
+            end;
+        end;
+
+        entity.cwFetchedItemData = nil;
+        entity.m_iFetchRetries = (entity.m_iFetchRetries or 0) + 1;
+        entity.m_iNextFetchItemData = CurTime() + math.min(30, math.pow(2, entity.m_iFetchRetries - 1));
     end);
 else
     util.AddNetworkString("FetchItemData");

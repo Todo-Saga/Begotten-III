@@ -598,28 +598,49 @@ function Clockwork.kernel:GetRagdollHitBone(entity, position, failSafe, minimum)
 	end
 end
 
+local ragdollBoneCache = {};
+
 -- A function to get a ragdoll's hit group.
 function Clockwork.kernel:GetRagdollHitGroup(entity, position)
-	local closest = {nil, HITGROUP_GENERIC}
+	if (!IsValid(entity) or !position) then
+		return HITGROUP_GENERIC
+	end
 
-	for k, v in pairs(Clockwork.HitGroupBonesCache) do
-		local bone = entity:LookupBone(v[1])
+	local model = entity:GetModel()
+	model = model and string.lower(model)
+	local cachedBones = model and ragdollBoneCache[model]
 
-		if (bone) then
-			local bonePosition = entity:GetBonePosition(bone)
+	if (!cachedBones) then
+		cachedBones = {}
+		for _, v in pairs(Clockwork.HitGroupBonesCache) do
+			local bone = entity:LookupBone(v[1])
+			if (bone) then
+				cachedBones[#cachedBones + 1] = {bone, v[2]}
+			end
+		end
+		if ((#cachedBones > 0 or (entity:GetBoneCount() or 0) > 0) and model and model ~= "") then
+			ragdollBoneCache[model] = cachedBones
+		end
+	end
 
-			if (position) then
-				local distance = bonePosition:Distance(position)
+	local closestDistSqr = nil
+	local closestGroup = HITGROUP_GENERIC
 
-				if (!closest[1] or distance < closest[1]) then
-					closest[1] = distance
-					closest[2] = v[2]
-				end
+	for i = 1, #cachedBones do
+		local entry = cachedBones[i]
+		local bonePosition = entity:GetBonePosition(entry[1])
+
+		if (bonePosition) then
+			local distSqr = bonePosition:DistToSqr(position)
+
+			if (!closestDistSqr or distSqr < closestDistSqr) then
+				closestDistSqr = distSqr
+				closestGroup = entry[2]
 			end
 		end
 	end
 
-	return closest[2]
+	return closestGroup
 end
 
 -- A function to create blood effects at a position.
@@ -722,6 +743,8 @@ function Clockwork.kernel:CreateConVar(name, value, flags, Callback)
 	local conVar = CreateConVar(name, value, flags or FCVAR_REPLICATED + FCVAR_NOTIFY + FCVAR_ARCHIVE)
 
 	cvars.AddChangeCallback(name, function(conVar, previousValue, newValue)
+		if (previousValue == newValue) then return; end;
+
 		hook.Run("ClockworkConVarChanged", conVar, previousValue, newValue)
 
 		if (Callback) then
@@ -809,6 +832,20 @@ function Clockwork.kernel:IncludeSchema()
 	end
 end
 
+local pendingLogBuffers = {}
+
+-- Flushes any buffered daily server log entries to disk in a single append per file.
+function Clockwork.kernel:FlushServerLogs()
+	timer.Remove("cwFlushServerLogs")
+
+	for path, lines in pairs(pendingLogBuffers) do
+		if (#lines > 0) then
+			file.Append(path, table.concat(lines))
+			pendingLogBuffers[path] = nil
+		end
+	end
+end
+
 -- A function to print a log message.
 function Clockwork.kernel:PrintLog(logType, text)
 	local listeners = {}
@@ -821,10 +858,12 @@ function Clockwork.kernel:PrintLog(logType, text)
 		end
 	end
 
-	net.Start("Log")
-		net.WriteUInt(logType or 5, 3)
-		net.WriteString(text)
-	net.Send(listeners)
+	if (#listeners > 0) then
+		net.Start("Log")
+			net.WriteUInt(logType or 5, 3)
+			net.WriteString(text)
+		net.Send(listeners)
+	end
 
 	if (game.IsDedicated()) then
 		self:ServerLog(text)
@@ -832,10 +871,29 @@ function Clockwork.kernel:PrintLog(logType, text)
 end
 
 -- A function to log to the server.
-function Clockwork.kernel:ServerLog(text)
-	local logText = os.date("%X").." - "..string.gsub(text, "\n", "")
-	
-	file.Append("clockwork/logs/"..os.date("%d-%m-%y")..".txt", logText.."\n")
+function Clockwork.kernel:ServerLog(text, bImmediate)
+	local logText = os.date("%X").." - "..string.gsub(text, "\n", "").."\n"
+	local path = "clockwork/logs/"..os.date("%d-%m-%y")..".txt"
+
+	if (bImmediate or Clockwork.ShuttingDown or not timer or not timer.Simple or player.GetCount() == 0) then
+		self:FlushServerLogs()
+		file.Append(path, logText)
+	else
+		local buf = pendingLogBuffers[path]
+		if (not buf) then
+			buf = {}
+			pendingLogBuffers[path] = buf
+		end
+		buf[#buf + 1] = logText
+
+		if (#buf >= 64) then
+			self:FlushServerLogs()
+		elseif (not timer.Exists("cwFlushServerLogs")) then
+			timer.Create("cwFlushServerLogs", 1, 1, function()
+				Clockwork.kernel:FlushServerLogs()
+			end)
+		end
+	end
 
 	ServerLog(text.."\n")
 end
@@ -1151,13 +1209,20 @@ function playerMeta:Give(class, itemTable, bForceReturn)
 		local weapon = self:GetWeapon(class)
 
 		if (IsValid(weapon) and itemTable) then
-			netstream.Start(self, "WeaponItemData", {
-				definition = item.GetDefinition(itemTable, true),
-				weapon = weapon:EntIndex()
-			})
-
 			weapon:SetNWInt("ItemID", itemTable.itemID);
 			weapon.cwItemTable = itemTable
+
+			if (not self:IsBot()) then
+				net.Start("cwWeaponItemData");
+					net.WriteUInt(weapon:EntIndex(), 16);
+					net.WriteTable(item.GetDefinition(itemTable, true));
+				net.Send(self)
+
+				weapon._cwLastSentPlayer = self;
+				weapon._cwLastSentItemID = itemTable.itemID;
+				weapon._cwLastSentDataRev = itemTable._cwDataRev or 0;
+				weapon._cwLastSyncTime = CurTime();
+			end;
 
 			if (itemTable.OnWeaponGiven) then
 				itemTable:OnWeaponGiven(self, weapon)
@@ -1301,7 +1366,8 @@ end
 function playerMeta:IsRunning()
 	if self:KeyDown(IN_SPEED) then
 		if self:Alive() and !self:IsRagdolled() and !self:InVehicle() and !self:Crouching() and self:WaterLevel() < 2 then
-			if (self:GetVelocity():Length() >= self:GetWalkSpeed() or bNoWalkSpeed) then
+			local walkSpeed = self:GetWalkSpeed();
+			if (walkSpeed >= 0 and self:GetVelocity():LengthSqr() >= (walkSpeed * walkSpeed)) then
 				if !self:GetNetVar("runningDisabled") then
 					return true;
 				end
@@ -1577,7 +1643,7 @@ function playerMeta:GetCash()
 end
 
 -- A function to get a character's flags.
-function playerMeta:GetFlags() return self:QueryCharacter("Flags") end
+function playerMeta:GetFlags() return self:QueryCharacter("Flags") or "" end
 
 -- A function to get a player's faction.
 function playerMeta:GetFaction() return self:QueryCharacter("Faction") end
@@ -2248,7 +2314,7 @@ end
 -- An easy function to give a table of items to a player.
 function playerMeta:GiveItems(itemTables)
 	for _, itemTable in pairs(itemTables) do
-		self:GiveItem(itemTables)
+		self:GiveItem(itemTable)
 	end
 end
 

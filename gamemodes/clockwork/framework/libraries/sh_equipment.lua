@@ -76,6 +76,16 @@ function Clockwork.equipment:GetItemEquipped(player, itemTable, category)
 end
 
 if SERVER then
+	local function GetHumanRecipients()
+		local players = {};
+		for _, p in _player.Iterator() do
+			if IsValid(p) and not p:IsBot() then
+				players[#players + 1] = p;
+			end;
+		end;
+		return players;
+	end;
+
 	function Clockwork.equipment:EquipItem(player, itemTable, slot)
 		if !itemTable then
 			return false;
@@ -110,8 +120,11 @@ if SERVER then
 		
 		player.equipmentSlots[slot] = itemTable;
 		
-		item.SendToPlayer(PlayerCache or _player.GetAll(), itemTable);
-		netstream.Start(PlayerCache or _player.GetAll(), "UpdateEquipment", {player, slot, itemTable.itemID});
+		local recipients = GetHumanRecipients();
+		if #recipients > 0 then
+			item.SendToPlayer(recipients, itemTable);
+			netstream.Start(recipients, "UpdateEquipment", {player, slot, itemTable.itemID});
+		end;
 		
 		if itemTable.equipmentSaveString then
 			if #itemTable.slots > 1 then
@@ -201,7 +214,7 @@ if SERVER then
 		
 		player.equipmentSlots[slot] = nil;
 		
-		local players = PlayerCache or _player.GetAll();
+		local players = GetHumanRecipients();
 					
 		-- Rearrange the slots.
 		if slot ~= itemTable.slots[#itemTable.slots] then
@@ -295,16 +308,42 @@ if SERVER then
 	end
 	
 	function Clockwork.equipment:NetworkEquipmentToPlayer(target, player)
+		if (!IsValid(target)) then
+			return;
+		end;
+
+		local isTableRecipient = istable(player);
+		if (isTableRecipient) then
+			local humans = {};
+			for i = 1, #player do
+				local p = player[i];
+				if (IsValid(p) and not p:IsBot()) then
+					humans[#humans + 1] = p;
+				end;
+			end;
+			if (#humans == 0) then return; end;
+			player = humans;
+		elseif (!IsValid(player) or player:IsBot()) then
+			return;
+		end;
+
 		if !target.equipmentSlots then
 			target.equipmentSlots = {};
 		end;
 		
 		local equipmentSlots = {};
+		local sentItemIDs = {};
 		
 		for k, v in pairs(target.equipmentSlots) do
 			if v then
-				equipmentSlots[k] = v.itemID;
-				item.SendToPlayer(player, v);
+				local itemID = v.itemID;
+				equipmentSlots[k] = itemID;
+				if (itemID and not sentItemIDs[itemID]) then
+					sentItemIDs[itemID] = true;
+					item.SendToPlayer(player, v);
+				elseif (!itemID) then
+					item.SendToPlayer(player, v);
+				end;
 			end
 		end
 	
@@ -312,6 +351,12 @@ if SERVER then
 	end
 	
 	function Clockwork.equipment:SyncEquipment(player)
+		if (!IsValid(player) or player:IsBot()) then
+			return;
+		end;
+
+		local sentItemIDs = {};
+
 		for _, v in _player.Iterator() do
 			if !v.equipmentSlots then
 				v.equipmentSlots = {};
@@ -325,8 +370,14 @@ if SERVER then
 			
 			for k2, v2 in pairs(v.equipmentSlots) do
 				if v2 then
-					equipmentSlots[k2] = v2.itemID;
-					item.SendToPlayer(player, v2);
+					local itemID = v2.itemID;
+					equipmentSlots[k2] = itemID;
+					if (itemID and not sentItemIDs[itemID]) then
+						sentItemIDs[itemID] = true;
+						item.SendToPlayer(player, v2);
+					elseif (!itemID) then
+						item.SendToPlayer(player, v2);
+					end;
 				end
 			end
 			
@@ -515,8 +566,14 @@ if SERVER then
 		
 		hook.Run("PlayerSetHandsModel", player, player:GetHands());
 		
+		local recipients = {};
 		for _, v in _player.Iterator() do
-			Clockwork.equipment:NetworkEquipmentToPlayer(player, v);
+			if not v:IsBot() and (v == player or v:HasInitialized()) then
+				recipients[#recipients + 1] = v;
+			end
+		end
+		if #recipients > 0 then
+			Clockwork.equipment:NetworkEquipmentToPlayer(player, recipients);
 		end
 	end);
 else
@@ -924,34 +981,52 @@ else
 		end
 	end);
 	
-	hook.Add("EntityRemoved", "EntityRemovedEquipment", function(entity, bFullUpdate)
-		if bFullUpdate then return end;
-		
-		if Clockwork.entity:IsPlayerRagdoll(entity) then
-			entity = entity:GetNWEntity("Player");
-		end
-		
-		if entity:IsPlayer() then
-			if entity.equipmentSlotModels then
-				for itemID, equipmentModel in pairs(entity.equipmentSlotModels) do
+	local function CleanupEquipmentModels(target)
+		if IsValid(target) and (target:IsPlayer() or (target.GetTable and target:GetTable().equipmentSlotModels)) then
+			local plyTab = target.GetTable and target:GetTable();
+			local models = plyTab and plyTab.equipmentSlotModels;
+			if models then
+				for itemID, equipmentModel in pairs(models) do
 					if IsValid(equipmentModel) then
 						equipmentModel:Remove();
 					end
 				end
 				
-				entity.equipmentSlotModels = nil;
+				plyTab.equipmentSlotModels = nil;
 			end
 		end
-	
-		--[[if Clockwork.entity:IsPlayerRagdoll(entity) then
-			ClearPlayerEquipmentModels(entity:GetNWEntity("Player"), entity);
-			
-			return;
+	end
+
+	hook.Add("EntityRemoved", "EntityRemovedEquipment", function(entity, bFullUpdate)
+		if bFullUpdate then return end;
+		
+		local ragdoll = entity;
+		if Clockwork.entity:IsPlayerRagdoll(entity) then
+			local owner = entity:GetNWEntity("Player");
+			if IsValid(owner) then
+				entity = owner;
+			end;
 		end
-	
-		if entity:IsPlayer() then
-			ClearPlayerEquipmentModels(entity, entity:GetRagdollEntity());
-		end]]--
+		
+		CleanupEquipmentModels(entity);
+		if ragdoll ~= entity then
+			CleanupEquipmentModels(ragdoll);
+		end;
+	end);
+
+	gameevent.Listen("player_disconnect");
+	hook.Add("player_disconnect", "PlayerDisconnectEquipment", function(data)
+		local ply = Player(data.userid);
+		if not (IsValid(ply) and ply:IsPlayer()) then
+			for _, p in _player.Iterator() do
+				if IsValid(p) and (p:UserID() == data.userid or (data.networkid and data.networkid ~= "" and data.networkid ~= "BOT" and p:SteamID() == data.networkid)) then
+					ply = p;
+					break;
+				end;
+			end;
+		end;
+
+		CleanupEquipmentModels(ply);
 	end);
 	
 	--[[hook.Add("EquipmentUpdated", "EquipmentUpdatedEquipment", function(player)

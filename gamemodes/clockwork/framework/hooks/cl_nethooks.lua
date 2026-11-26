@@ -410,7 +410,9 @@ netstream.Hook("Hint", function(data)
 	end
 end)
 
-netstream.Hook("WeaponItemData", function(data)
+net.Receive("cwWeaponItemData", function()
+	local data = {weapon = net.ReadUInt(16), definition = net.ReadTable()}
+
 	local weapon = Entity(data.weapon)
 
 	if (IsValid(weapon)) then

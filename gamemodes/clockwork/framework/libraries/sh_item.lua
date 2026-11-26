@@ -49,7 +49,8 @@ end
 --]]
 
 --[[ Set the __index meta function of the class. --]]
-local CLASS_TABLE = {__index = CLASS_TABLE};
+local CLASS_TABLE = {};
+CLASS_TABLE.__index = CLASS_TABLE;
 
 CLASS_TABLE.name = "Item Base";
 CLASS_TABLE.skin = 0;
@@ -789,9 +790,11 @@ if (SERVER) then
 		
 		if (itemTable:IsInstance() and itemTable.data[dataName] != nil and (itemTable.data[dataName] != value or istable(itemTable.data[dataName]) or dataName == "Ammo")) then
 			itemTable.data[dataName] = value;
+			itemTable._cwDataRev = (itemTable._cwDataRev or 0) + 1;
 			
 			if itemTable ~= self then
 				self.data[dataName] = value;
+				self._cwDataRev = itemTable._cwDataRev;
 			end
 			
 			if (itemTable:IsDataNetworked(dataName)) then
@@ -1137,6 +1140,53 @@ function item.FindByID(identifier)
 	end;
 end;
 
+-- A function to resolve a valid clothes model with automatic fallbacks for missing gender variants.
+local validModelCache = {};
+function item.IsValidModelCached(modelPath)
+	if not modelPath or type(modelPath) ~= "string" then return false end;
+	local cached = validModelCache[modelPath];
+	if cached ~= nil then return cached end;
+	local isValid;
+	if CLIENT then
+		isValid = (string.sub(string.lower(modelPath), -4) == ".mdl") and file.Exists(modelPath, "GAME") or false;
+	else
+		isValid = util.IsValidModel(modelPath);
+	end;
+	if isValid or SERVER then
+		validModelCache[modelPath] = isValid;
+	end;
+	return isValid;
+end;
+local IsValidModelCached = item.IsValidModelCached;
+
+function item.GetClothesModel(clothesItem, gender)
+	if not (clothesItem and clothesItem.group) then return nil end;
+
+	local model;
+	if clothesItem.genderless then
+		model = "models/begotten/"..clothesItem.group..".mdl";
+	else
+		local targetGender = string.lower(gender or "male");
+		model = "models/begotten/"..clothesItem.group.."_"..targetGender..".mdl";
+	end;
+
+	if not IsValidModelCached(model) then
+		local maleFallback = "models/begotten/"..clothesItem.group.."_male.mdl";
+		if maleFallback ~= model and IsValidModelCached(maleFallback) then
+			return maleFallback;
+		end;
+		local genderlessFallback = "models/begotten/"..clothesItem.group..".mdl";
+		if genderlessFallback ~= model and IsValidModelCached(genderlessFallback) then
+			return genderlessFallback;
+		end;
+		return (string.lower(gender or "") == "female" and IsValidModelCached("models/begotten/wanderers/wanderer_female.mdl"))
+			and "models/begotten/wanderers/wanderer_female.mdl"
+			or "models/begotten/wanderers/wanderer_male.mdl";
+	end;
+
+	return model;
+end;
+
 -- A function to merge an item with a base item.
 function item.Merge(itemTable, baseItem, bTemporary)
 	local baseTable = item.FindByID(baseItem);
@@ -1358,11 +1408,85 @@ if (SERVER) then
 		@details A function to send an item to a player.
 	--]]
 	function item.SendToPlayer(player, itemTable)
-		if (itemTable) then
+		if not itemTable then return; end;
+		if istable(player) then
+			local humans = {};
+			for i = 1, #player do
+				local p = player[i];
+				if IsValid(p) and not p:IsBot() then
+					humans[#humans + 1] = p;
+				end;
+			end;
+			if #humans > 0 then
+				netstream.Start(humans, "ItemData", item.GetDefinition(itemTable, true));
+			end;
+		elseif (IsValid(player) and not player:IsBot()) then
 			netstream.Start(
 				player, "ItemData", item.GetDefinition(itemTable, true)
 			);
 		end;
+	end;
+
+	local function HasHumanPlayers()
+		for _, v in _player.Iterator() do
+			if IsValid(v) and not v:IsBot() then
+				return true;
+			end;
+		end;
+		return false;
+	end;
+
+	-- Syncs a weapon SWEP's ItemID/definition to its owner.
+	function item.SyncWeaponEntity(weapon, player)
+		if not (IsValid(weapon) and IsValid(player) and player:IsPlayer()) then
+			return 5;
+		end;
+
+		local nwItemID = weapon:GetNWInt("ItemID");
+		local cached = weapon.cwItemTable;
+		local cachedInstance = (cached and cached.itemID and (nwItemID == 0 or nwItemID == cached.itemID)) and item.FindInstance(cached.itemID) or nil;
+		local itemTable = cachedInstance or item.GetByWeapon(weapon);
+
+		if not itemTable then
+			return math.random(1, 5);
+		end;
+
+		weapon.cwItemTable = itemTable;
+
+		if nwItemID ~= itemTable.itemID then
+			weapon:SetNWInt("ItemID", itemTable.itemID);
+		end;
+
+		if player:IsBot() then
+			return 30;
+		end;
+
+		-- Resend on O(1) data revision / identity change, with a 30s fallback resend for client desyncs.
+		local curTime = CurTime();
+		local dataRev = itemTable._cwDataRev or 0;
+		local alreadySynced = (
+			weapon._cwLastSentPlayer == player
+			and weapon._cwLastSentItemID == itemTable.itemID
+			and nwItemID == itemTable.itemID
+			and weapon._cwLastSentDataRev == dataRev
+			and curTime - (weapon._cwLastSyncTime or 0) < 30
+		);
+
+		if not alreadySynced then
+			net.Start("cwWeaponItemData");
+				net.WriteUInt(weapon:EntIndex(), 16);
+				net.WriteTable(item.GetDefinition(itemTable, true));
+			net.Send(player);
+
+			weapon._cwLastSentPlayer = player;
+			weapon._cwLastSentItemID = itemTable.itemID;
+			weapon._cwLastSentDataRev = dataRev;
+			weapon._cwLastSyncTime = curTime;
+
+			return math.random(2, 5);
+		end;
+
+		return math.random(15, 25);
 	end;
 	
 	--[[
@@ -1370,16 +1494,154 @@ if (SERVER) then
 		@details A function to send an item update to it's observers.
 		@returns Table The table of observers.
 	--]]
+	util.AddNetworkString("cwWeaponItemData");
+	util.AddNetworkString("cwInvNetwork");
+
+	local function HasItemInstanceRecursive(inventory, targetItem, visited, depth)
+		if not (istable(inventory) and targetItem) then return false end
+		if Clockwork.inventory:HasItemInstance(inventory, targetItem) then return true end
+		depth = depth or 0
+		if depth >= 16 then return false end
+		visited = visited or {}
+		if visited[inventory] then return false end
+		visited[inventory] = true
+
+		for _, items in pairs(inventory) do
+			if istable(items) then
+				for _, it in pairs(items) do
+					if istable(it) and istable(it.inventory) and HasItemInstanceRecursive(it.inventory, targetItem, visited, depth + 1) then
+						return true
+					end
+				end
+			end
+		end
+		return false
+	end
+
 	function item.SendUpdate(itemTable, data)
 		if (itemTable) then
 			local itemID = itemTable("itemID");
+			local itemEntity = item.entities and item.entities[itemID];
+			local recipients;
 
-			netstream.Start(nil, "InvNetwork", {
-				itemID = itemID,
-				data = data
-			});
+			if IsValid(itemEntity) then
+				if HasHumanPlayers() then
+					net.Start("cwInvNetwork");
+						net.WriteTable({
+							itemID = itemID,
+							data = data
+						});
+					net.Broadcast();
+				end;
+				return;
+			else
+				local recMap = {};
+				local ownerInv = nil;
+				local foundOwner = false;
+				local fallbackPlayers;
+				local storagePlayers;
+				local bEquipped = false;
+
+				for _, v in _player.Iterator() do
+					if v:HasInitialized() or not v:IsBot() then
+						if v.cwStorageTab and v.cwStorageTab.inventory then
+							storagePlayers = storagePlayers or {};
+							storagePlayers[#storagePlayers + 1] = v;
+						end;
+
+						if not foundOwner then
+							local inv = v:GetInventory();
+							local hasItem = (inv and Clockwork.inventory:HasItemInstance(inv, itemTable));
+							-- Equipped items also stay in the owner's inventory, so check slots regardless of the inventory match.
+							if v.equipmentSlots then
+								for _, eqItem in pairs(v.equipmentSlots) do
+									if eqItem == itemTable or (istable(eqItem) and eqItem.itemID and eqItem.itemID == itemID) then
+										hasItem = true;
+										bEquipped = true;
+										break;
+									end;
+								end;
+							end;
+
+							if hasItem then
+								recMap[v] = true;
+								ownerInv = inv;
+								foundOwner = true;
+							else
+								fallbackPlayers = fallbackPlayers or {};
+								fallbackPlayers[#fallbackPlayers + 1] = v;
+							end;
+						end;
+					end;
+				end;
+
+				-- Equipped items are networked to every client (see Clockwork.equipment), so their data updates must be too.
+				if bEquipped then
+					if HasHumanPlayers() then
+						net.Start("cwInvNetwork");
+							net.WriteTable({
+								itemID = itemID,
+								data = data
+							});
+						net.Broadcast();
+					end;
+					return;
+				end;
+
+				-- Fallback to recursive nested-inventory search only if owner was not found top-level
+				if not foundOwner and fallbackPlayers then
+					for _, v in ipairs(fallbackPlayers) do
+						local inv = v:GetInventory();
+						local hasItem = (inv and HasItemInstanceRecursive(inv, itemTable));
+						if not hasItem and v.equipmentSlots then
+							for _, eqItem in pairs(v.equipmentSlots) do
+								if istable(eqItem) and eqItem.inventory and HasItemInstanceRecursive(eqItem.inventory, itemTable) then
+									hasItem = true;
+									break;
+								end;
+							end;
+						end;
+
+						if hasItem then
+							recMap[v] = true;
+							ownerInv = inv;
+							foundOwner = true;
+							break;
+						end;
+					end;
+				end;
+
+				if storagePlayers then
+					for _, v in ipairs(storagePlayers) do
+						local st = v.cwStorageTab;
+						if st and st.inventory then
+							if (ownerInv and st.inventory == ownerInv) or HasItemInstanceRecursive(st.inventory, itemTable) then
+								recMap[v] = true;
+							end;
+						end;
+					end;
+				end;
+
+				if next(recMap) then
+					recipients = {};
+					for ply, _ in pairs(recMap) do
+						if IsValid(ply) and not ply:IsBot() then
+							recipients[#recipients + 1] = ply;
+						end;
+					end;
+				end;
+			end
+
+			if recipients and #recipients > 0 then
+				net.Start("cwInvNetwork");
+					net.WriteTable({
+						itemID = itemID,
+						data = data
+					});
+				net.Send(recipients);
+			end
 		end;
-	end;	
+	end;
 else
 	function item.GetIconInfo(itemTable)
 		local model = itemTable("iconModel", itemTable("model"));

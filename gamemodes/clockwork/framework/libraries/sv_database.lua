@@ -591,6 +591,12 @@ function Clockwork.database:OnConnected()
 	MsgC(Color(0, 0, 255), "[Clockwork]", Color(192, 192, 192), " Connected to the database using "..Clockwork.database.Module.."!\n")
 
 	if (self.Module == "sqlite") then
+		local journalMode = sql.QueryValue("PRAGMA journal_mode = WAL;")
+		if (isstring(journalMode) and string.lower(journalMode) == "wal") then
+			sql.Query("PRAGMA synchronous = NORMAL;")
+		end
+		sql.Query("PRAGMA busy_timeout = 5000;")
+		sql.Query("PRAGMA cache_size = -16384;")
 		local queryObj = self:Create("bans")
 			queryObj:Create("_Key", "INTEGER AUTOINCREMENT")
 			queryObj:Create("_Identifier", "TEXT")
@@ -645,6 +651,10 @@ function Clockwork.database:OnConnected()
 			queryObj:Create("_Traits", "TEXT")
 			queryObj:PrimaryKey("_Key")
 		queryObj:Execute()
+
+		sql.Query("CREATE INDEX IF NOT EXISTS idx_cw_characters_lookup ON characters (_SteamID, _Schema, _CharacterID)")
+		sql.Query("CREATE INDEX IF NOT EXISTS idx_cw_players_lookup ON players (_SteamID, _Schema)")
+		sql.Query("CREATE INDEX IF NOT EXISTS idx_cw_bans_lookup ON bans (_Identifier, _Schema)")
 	else
 		local queryObj = self:Create("bans")
 			queryObj:Create("_Key", "int(11) NOT NULL AUTO_INCREMENT")

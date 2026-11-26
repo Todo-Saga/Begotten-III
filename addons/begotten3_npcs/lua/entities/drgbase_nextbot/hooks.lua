@@ -16,6 +16,18 @@ end
 function ENT:_InitHooks()
 	if CLIENT then return end
 	self._DrGBaseLastDmgInflicted = {}
+	local pos = self:GetPos()
+	if util.IsInWorld(pos) and self:IsOnGround() then
+		local tr = util.TraceLine({
+			start = pos + Vector(0, 0, 8),
+			endpos = pos - Vector(0, 0, 32),
+			filter = self,
+			mask = MASK_NPCWORLDSTATIC
+		})
+		if not tr.StartSolid and tr.Hit and IsValid(navmesh.GetNearestNavArea(tr.HitPos, false, 128, false, true)) then
+			self.LastKnownGroundPos = tr.HitPos
+		end
+	end
 end
 
 if SERVER then
@@ -258,6 +270,18 @@ if SERVER then
 	function ENT:OnLandOnGround() end
 	function ENT:_HandleLandOnGround()
 		self:SetNW2Bool("DrGBaseOnGround", true)
+		local landPos = self:GetPos()
+		if util.IsInWorld(landPos) then
+			local tr = util.TraceLine({
+				start = landPos + Vector(0, 0, 8),
+				endpos = landPos - Vector(0, 0, 32),
+				filter = self,
+				mask = MASK_NPCWORLDSTATIC
+			})
+			if not tr.StartSolid and tr.Hit and IsValid(navmesh.GetNearestNavArea(tr.HitPos, false, 128, false, true)) then
+				self.LastKnownGroundPos = tr.HitPos
+			end
+		end
 		self:UpdateAnimation()
 		self:UpdateSpeed()
 		self:InvalidatePath()

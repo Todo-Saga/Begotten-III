@@ -19,9 +19,47 @@
 	end;
 end;]]--
 
+cwZombies.activeZombies = cwZombies.activeZombies or {};
+
+function cwZombies:InitPostEntity()
+	self.activeZombies = self.activeZombies or {};
+	for _, entity in ipairs(ents.GetAll()) do
+		if IsValid(entity) and (entity:IsNPC() or entity:IsNextBot()) and self:IsZombieNPC(entity) then
+			self.activeZombies[entity] = true;
+		end;
+	end;
+end;
+
+function cwZombies:OnEntityCreated(entity)
+	if not IsValid(entity) or not (entity:IsNPC() or entity:IsNextBot()) then return end;
+
+	if self.zombieNPCSet and self.zombieNPCSet[entity:GetClass()] then
+		if !self.activeZombies then
+			self.activeZombies = {};
+		end;
+		self.activeZombies[entity] = true;
+		return;
+	end;
+
+	timer.Simple(0, function()
+		if IsValid(entity) and (entity:IsNPC() or entity:IsNextBot()) and self:IsZombieNPC(entity) then
+			if !self.activeZombies then
+				self.activeZombies = {};
+			end;
+			self.activeZombies[entity] = true;
+		end;
+	end);
+end;
+
 -- Called when an entity is removed.
 function cwZombies:EntityRemoved(entity)
-	if (table.HasValue(self.zombieNPCS, entity:GetClass())) then
+	if Clockwork.ShuttingDown then return end;
+	local wasTracked = self.activeZombies and self.activeZombies[entity];
+	if wasTracked then
+		self.activeZombies[entity] = nil;
+	end;
+
+	if (wasTracked or self:IsZombieNPC(entity)) then
 		if !entity.noCatalysts then
 			for k, v in pairs (ents.FindInSphere(entity:GetPos(), 750)) do
 				if (IsValid(entity) and IsValid(v) and v:IsPlayer() and v:Alive() and v:HasInitialized()) then

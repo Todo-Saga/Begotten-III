@@ -243,9 +243,21 @@ if SERVER then
 	end
 	
 	-- Animations/Sounds --
+	local LAUGH_SOUNDS = {
+		"possession/laugh_01.wav",
+		"possession/laugh_03.wav",
+		"possession/laugh_06.wav",
+		"possession/laugh_09.wav",
+		"possession/laugh_11.wav",
+		"possession/laugh_12.wav"
+	};
+
 	function ENT:OnNewEnemy()
-		local laughs = {01, 03, 06, 09, 11, 12}
-		self:EmitSound("possession/laugh_0"..laughs[math.random(1, #laughs)]..".wav", 80, self.pitch, 0.6)
+		local curTime = CurTime();
+		if (!self.nextNewEnemySound or self.nextNewEnemySound < curTime) then
+			self.nextNewEnemySound = curTime + 4;
+			self:EmitSound(LAUGH_SOUNDS[math.random(1, #LAUGH_SOUNDS)], 80, self.pitch, 0.6);
+		end;
 	end
 	
 	function ENT:OnChaseEnemy()

@@ -273,10 +273,10 @@ if SERVER then
 		[NPC_STATE_DEAD] = true
 	}
 	function ENT:IsIgnored(ent)
+		if not IsValid(ent) then return true end
+		if ent.cwIgnoreAI then return true end
 		if Clockwork then -- bgt change
 			if ent:GetClass() == "prop_ragdoll" then
-				local ragdollPlayer = Clockwork.entity:GetPlayer(ent);
-				
 				if ent:GetNWEntity("Player") == game.GetWorld() then
 					return true;
 				end
@@ -284,6 +284,7 @@ if SERVER then
 				local ragdollPlayer = Clockwork.entity:GetPlayer(ent);
 	
 				if IsValid(ragdollPlayer) then
+					if ragdollPlayer.cwIgnoreAI then return true end
 					if ragdollPlayer:IsRagdolled() then
 						ent = ragdollPlayer;
 					end
@@ -300,7 +301,7 @@ if SERVER then
 		if ent.IsDrGNextbot and (ent:IsDown() or ent:IsDead()) then return true end
 		if Clockwork then -- bgt change
 			if ent:IsPlayer() then
-				if !ent:HasInitialized() or (ent.cwObserverMode and ent:GetCharacterData("IsObserverTarget") ~= true) or (!self.canSeeCloakers and ent.cloaked) then
+				if !ent:HasInitialized() or ((ent.cwObserverMode or (ent:GetMoveType() == MOVETYPE_NOCLIP and not ent:InVehicle()) or ent:IsFlagSet(FL_NOTARGET)) and ent:GetCharacterData("IsObserverTarget") ~= true) or (!self.canSeeCloakers and ent.cloaked) then
 					return true;
 				end
 			end

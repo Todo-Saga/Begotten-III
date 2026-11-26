@@ -687,8 +687,119 @@ if SERVER then
 	function ENT:OnStopClimbing() end
 	function ENT:CustomClimbing() end
 
+	local function CanOccupyPos(ent, targetPos)
+		if not util.IsInWorld(targetPos) then return false end
+		local mins, maxs
+		if ent.GetCollisionBounds then
+			mins, maxs = ent:GetCollisionBounds()
+		else
+			mins, maxs = ent:OBBMins(), ent:OBBMaxs()
+		end
+		local hullCheck = util.TraceHull({
+			start = targetPos,
+			endpos = targetPos,
+			filter = ent,
+			mins = mins,
+			maxs = maxs,
+			mask = MASK_NPCSOLID
+		})
+		return not hullCheck.Hit and not hullCheck.StartSolid
+	end
+
 	function ENT:HandleStuck()
+		local pos = self:GetPos()
+		local curTime = CurTime()
+
+		if not util.IsInWorld(pos) or pos.z <= -16000 then
+			if self.LastKnownGroundPos and self.LastKnownGroundPos.z > -16000 then
+				local baseGround = self.LastKnownGroundPos + Vector(0, 0, 8)
+				local groundOffsets = {Vector(0, 0, 0), Vector(32, 0, 0), Vector(-32, 0, 0), Vector(0, 32, 0), Vector(0, -32, 0)}
+				for i = 1, #groundOffsets do
+					local groundDest = baseGround + groundOffsets[i]
+					if CanOccupyPos(self, groundDest) then
+						self._cwOOWStuckFails = nil
+						self:SetPos(groundDest)
+						if self.loco then self.loco:SetVelocity(vector_origin) end
+						self:InvalidatePath()
+						self:ClearStuck()
+						return true
+					end
+				end
+			end
+
+			local navProbe = Vector(pos.x, pos.y, self.LastKnownGroundPos and self.LastKnownGroundPos.z or pos.z)
+			local area = navmesh.GetNearestNavArea(navProbe, false, 2048, false, true)
+			if IsValid(area) then
+				local validPos = area:GetClosestPointOnArea(navProbe) + Vector(0, 0, 8)
+				if CanOccupyPos(self, validPos) then
+					self._cwOOWStuckFails = nil
+					self:SetPos(validPos)
+					if self.loco then self.loco:SetVelocity(vector_origin) end
+					self:InvalidatePath()
+					self:ClearStuck()
+					return true
+				end
+			end
+
+			self._cwOOWStuckFails = (self._cwOOWStuckFails or 0) + 1
+			if pos.z <= -16000 or self._cwOOWStuckFails >= 3 then
+				self:Remove()
+				return false
+			end
+			return false
+		else
+			self._cwOOWStuckFails = nil
+			if self._cwNextStuckRecovery and curTime < self._cwNextStuckRecovery then
+				self:ClearStuck()
+				return true
+			end
+
+			self._cwNextStuckRecovery = curTime + 1.0
+			local area = navmesh.GetNearestNavArea(pos, false, 500, false, false)
+			if IsValid(area) then
+				local closest = area:GetClosestPointOnArea(pos)
+				if (closest - pos):LengthSqr() > 256 then
+					local validPos = closest + Vector(0, 0, 8)
+					if CanOccupyPos(self, validPos) then
+						local mins, maxs = self:GetCollisionBounds()
+						local hullClear = util.TraceHull({
+							start = pos + Vector(0, 0, 8),
+							endpos = validPos,
+							filter = self,
+							mins = mins,
+							maxs = maxs,
+							mask = MASK_NPCSOLID
+						})
+						local bClear = (not hullClear.Hit and not hullClear.StartSolid)
+						if not bClear and hullClear.StartSolid then
+							local los = util.TraceLine({
+								start = pos + Vector(0, 0, 32),
+								endpos = validPos + Vector(0, 0, 32),
+								filter = self,
+								mask = MASK_NPCSOLID_BRUSHONLY
+							})
+							bClear = (not los.Hit and not los.StartSolid)
+						end
+						if bClear then
+							self._cwNextStuckRecovery = curTime + 1.5
+							self:SetPos(validPos)
+							if self.loco then self.loco:SetVelocity(vector_origin) end
+							self:InvalidatePath()
+						end
+					end
+				end
+			end
+		end
+
 		self:ClearStuck()
+		return true
+	end
+
+	function ENT:OnStuck()
+		local pos = self:GetPos()
+		if not util.IsInWorld(pos) or pos.z <= -16000 then
+			self:HandleStuck()
+		end
 	end
 
 	-- A function to make an NPC bash down a door. bgt change

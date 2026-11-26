@@ -490,7 +490,7 @@ function Schema:EntityHandleMenuOption(player, entity, option, arguments)
 		if (arguments == "cw_corpseLoot") then
 			local entityPlayer = Clockwork.entity:GetPlayer(entity);
 			
-			if (!entityPlayer or (entityPlayer and (!entityPlayer:Alive() or entityPlayer:GetMoveType() ~= MOVETYPE_OBSERVER))) then
+			if (!IsValid(entityPlayer) or !entityPlayer:Alive() or entityPlayer:GetRagdollEntity() ~= entity) then
 				if (!entity.cwInventory) then entity.cwInventory = {}; end;
 				if (!entity.cwCash) then entity.cwCash = 0; end;
 
@@ -1585,13 +1585,8 @@ function Schema:Think()
 			return;
 		end;
 		
-		local entities = ents.GetAll()
-		local count = ents.GetCount()
-		
-		for i = 1, count do
-			local entity = entities[i]
-			
-			if (entity:GetClass() != "prop_physics" or entity:WaterLevel() < 1) then
+		for _, entity in ipairs(ents.FindByClass("prop_physics")) do
+			if (entity:WaterLevel() < 1) then
 				continue
 			end
 			
@@ -1724,7 +1719,7 @@ function Schema:Think()
 			end
 			
 			if map == "rp_district21" and cwDayNight and cwDayNight.currentCycle == "night" then
-				if self.npcSpawns["thrallnight"] and #self.spawnedNPCs["thrall"] < self.maxNPCs["thrallnight"] then
+				if self.npcSpawns["thrallnight"] and (#self.spawnedNPCs["thrall"] + (self.pendingThrallSpawns or 0)) < self.maxNPCs["thrallnight"] then
 					local spawnPos = self.npcSpawns["thrallnight"][math.random(1, #self.npcSpawns["thrallnight"])].pos;
 					local thrallNPCs = {"npc_bgt_another", "npc_bgt_guardian", "npc_bgt_otis", "npc_bgt_pursuer", "npc_bgt_shambler"};
 						
@@ -1737,7 +1732,9 @@ function Schema:Think()
 					ParticleEffect("teleport_fx", spawnPos, Angle(0,0,0), nil);
 					sound.Play("misc/summon.wav", spawnPos, 100, 100);
 					
+					self.pendingThrallSpawns = (self.pendingThrallSpawns or 0) + 1;
 					timer.Simple(0.75, function()
+						self.pendingThrallSpawns = math.max(0, (self.pendingThrallSpawns or 1) - 1);
 						local entity = cwZombies:SpawnThrall(npcName, spawnPos, Angle(0, math.random(1, 359), 0));
 						
 						if IsValid(entity) then
@@ -1746,7 +1743,7 @@ function Schema:Think()
 					end);
 				end
 			else
-				if self.npcSpawns["thrall"] and #self.spawnedNPCs["thrall"] < self.maxNPCs["thrall"] then
+				if self.npcSpawns["thrall"] and (#self.spawnedNPCs["thrall"] + (self.pendingThrallSpawns or 0)) < self.maxNPCs["thrall"] then
 					local spawnPos = self.npcSpawns["thrall"][math.random(1, #self.npcSpawns["thrall"])].pos;
 					local thrallNPCs;
 					
@@ -1771,7 +1768,9 @@ function Schema:Think()
 					ParticleEffect("teleport_fx", spawnPos, Angle(0,0,0), nil);
 					sound.Play("misc/summon.wav", spawnPos, 100, 100);
 					
+					self.pendingThrallSpawns = (self.pendingThrallSpawns or 0) + 1;
 					timer.Simple(0.75, function()
+						self.pendingThrallSpawns = math.max(0, (self.pendingThrallSpawns or 1) - 1);
 						local entity = cwZombies:SpawnThrall(npcName, spawnPos, Angle(0, math.random(1, 359), 0));
 						
 						if IsValid(entity) then
@@ -1817,7 +1816,7 @@ function Schema:PlayerThink(player, curTime, infoTable, alive, initialized, plyT
 		local moveType = player:GetMoveType();
 		local waterLevel = infoTable.waterLevel;
 		
-		if (moveType == MOVETYPE_NOCLIP) then
+		if (moveType == MOVETYPE_NOCLIP or moveType == MOVETYPE_LADDER or player:InVehicle()) then
 			if (plyTab.bOnGround) then
 				plyTab.bOnGround = nil;
 			end;
@@ -1825,9 +1824,11 @@ function Schema:PlayerThink(player, curTime, infoTable, alive, initialized, plyT
 			if (plyTab.bWasInAir) then
 				plyTab.bWasInAir = nil;
 			end;
-		end;	
-		
-		if (bOnGround) then
+
+			if (plyTab.peakFallSpeed) then
+				plyTab.peakFallSpeed = nil;
+			end;
+		elseif (bOnGround) then
 			if (!plyTab.bOnGround) then
 				plyTab.bOnGround = true;
 			end;
@@ -1838,57 +1839,79 @@ function Schema:PlayerThink(player, curTime, infoTable, alive, initialized, plyT
 				end;
 				
 				plyTab.bWasInAir = nil;
+				plyTab.peakFallSpeed = nil;
 			end;
 		else
+			local fallSpeed = -player:GetVelocity().z;
+			if fallSpeed > (plyTab.peakFallSpeed or 0) then
+				plyTab.peakFallSpeed = fallSpeed;
+			end;
+
 			if (plyTab.bWasInAir) then
 				if (waterLevel >= 1) then
 					hook.Run("HitGroundWater", player, plyTab.bWasInAir);
 					
 					plyTab.bWasInAir = nil;
+					plyTab.peakFallSpeed = nil;
 				end;
 			end;
 		
 			if (plyTab.bOnGround) then
 				plyTab.bWasInAir = player:GetPos().z;
+				plyTab.peakFallSpeed = math.max(0, fallSpeed);
 				plyTab.bOnGround = nil;
+			elseif (not plyTab.bWasInAir and moveType == MOVETYPE_WALK and waterLevel == 0 and fallSpeed > 150) then
+				-- Catch free-falls entered directly off a ladder/vehicle without touching solid ground first.
+				plyTab.bWasInAir = player:GetPos().z;
 			end;
 		end;
 		
-		local wages = Clockwork.class:Query(player:Team(), "coinslotWages", 0);
-		local rank = player:GetCharacterData("rank", 1);
-		local ranksToCoin = Schema.RanksToCoin;
-		
-		if ranksToCoin and ranksToCoin[faction] then
-			wages = ranksToCoin[faction][math.Clamp(rank, 1, #ranksToCoin[faction])];
-		end
-		
-		infoTable.coinslotWages = wages;
-		
-		if infoTable.coinslotWages > 0 then
-			local ranksRestrictedWages = Schema.RanksRestrictedWages;
-			local nextWages = player:GetCharacterData("nextWages", 0);
+		if (!plyTab.nextWageCheck or curTime >= plyTab.nextWageCheck) then
+			local wages = Clockwork.class:Query(player:Team(), "coinslotWages", 0);
+			local rank = player:GetCharacterData("rank", 1);
+			local ranksToCoin = Schema.RanksToCoin;
 			
-			if nextWages >= config.GetVal("coinslot_wages_interval") then
-				if !self.towerTreasury then
-					self.towerTreasury = Clockwork.kernel:RestoreSchemaData("treasury")[1] or 0;
-				end
-				
-				local collectableWages = player:GetCharacterData("collectableWages", 0);
-				
-				if collectableWages < 4 and self.towerTreasury > 0 then
-					player:SetCharacterData("collectableWages", collectableWages + 1);
-				end
-				
-				player:SetCharacterData("nextWages", 0);
-			else
-				if ranksRestrictedWages and ranksRestrictedWages[faction] and table.HasValue(ranksRestrictedWages[faction], rank) then
-					if !player:InTower() then
-						player:SetCharacterData("nextWages", math.Round(nextWages + (cwThinkRate or 0.2), 2));
-					end
-				else
-					player:SetCharacterData("nextWages", math.Round(nextWages + (cwThinkRate or 0.2), 2));
-				end
+			if ranksToCoin and ranksToCoin[faction] then
+				wages = ranksToCoin[faction][math.Clamp(rank, 1, #ranksToCoin[faction])];
 			end
+			
+			plyTab._cachedCoinslotWages = wages;
+			infoTable.coinslotWages = wages;
+			
+			if infoTable.coinslotWages > 0 then
+				local cwWageThinkRate = plyTab.lastWageTime and math.Clamp(curTime - plyTab.lastWageTime, 0.2, 2.0) or (cwThinkRate or 0.2);
+				plyTab.lastWageTime = curTime;
+				plyTab.nextWageCheck = curTime + 0.95; -- Catch 5th 0.2s think tick reliably
+				local ranksRestrictedWages = Schema.RanksRestrictedWages;
+				local nextWages = player:GetCharacterData("nextWages", 0);
+				
+				if nextWages >= config.GetVal("coinslot_wages_interval") then
+					if !self.towerTreasury then
+						self.towerTreasury = Clockwork.kernel:RestoreSchemaData("treasury")[1] or 0;
+					end
+					
+					local collectableWages = player:GetCharacterData("collectableWages", 0);
+					
+					if collectableWages < 4 and self.towerTreasury > 0 then
+						player:SetCharacterData("collectableWages", collectableWages + 1);
+					end
+					
+					player:SetCharacterData("nextWages", 0);
+				else
+					if ranksRestrictedWages and ranksRestrictedWages[faction] and table.HasValue(ranksRestrictedWages[faction], rank) then
+						if !player:InTower() then
+							player:SetCharacterData("nextWages", math.Round(nextWages + cwWageThinkRate, 2));
+						end
+					else
+						player:SetCharacterData("nextWages", math.Round(nextWages + cwWageThinkRate, 2));
+					end
+				end
+			else
+				plyTab.lastWageTime = nil;
+				plyTab.nextWageCheck = curTime + 5.0;
+			end
+		else
+			infoTable.coinslotWages = plyTab._cachedCoinslotWages or 0;
 		end;
 		
 		if (!plyTab.nextOneSecond or plyTab.nextOneSecond < curTime) then
@@ -2013,19 +2036,27 @@ end;
 
 -- Called when a player hits water.
 function Schema:HitGroundWater(player, airZ)
+	local plyTab = player:GetTable();
+	if (player.cwNextFallDamage and player.cwNextFallDamage > CurTime()) then
+		plyTab.peakFallSpeed = nil;
+		return;
+	end;
+
 	local position = player:GetPos();
-	local difference = airZ - position.z
+	local difference = airZ - position.z;
+	local peakFallSpeed = math.max(plyTab.peakFallSpeed or 0, -player:GetVelocity().z);
 	
-	if (difference > 192) then
-		local world = GetWorldEntity();
+	if (difference > 192 and peakFallSpeed > 320) then
+		local world = game.GetWorld();
 		local damageInfo = DamageInfo();
 			damageInfo:SetDamageType(DMG_FALL);
-			damageInfo:SetDamage(35 * (difference / 512))
-			damageInfo:SetAttacker(world)
+			damageInfo:SetDamage(35 * (difference / 512));
+			damageInfo:SetAttacker(world);
 			damageInfo:SetInflictor(world);
 			damageInfo:SetDamagePosition(Vector(position.x, position.y, airZ));
 		player:TakeDamageInfo(damageInfo);
 	end;
+	plyTab.peakFallSpeed = nil;
 end;
 
 -- Called when an entity is removed.
@@ -3007,6 +3038,10 @@ end;
 function Schema:PostPlayerLightSpawn(player, weapons, ammo, special) end;
 
 function Schema:PlayerCharacterLoaded(player)
+	local plyTab = player:GetTable();
+	plyTab.nextWageCheck = nil;
+	plyTab.lastWageTime = nil;
+	plyTab._cachedCoinslotWages = nil;
 	netstream.Start(player, "GetZone", true);
 	
 	if player:GetCharacterData("tied") or (self.autoTieEnabled and !player:IsAdmin()) then
@@ -3558,10 +3593,48 @@ function Schema:ActionStopped(player, action)
 			player.ladderConstructing = nil;
 		end
 	elseif action == "reloading" then
-		if player.itemUsing and IsValid(player.itemUsing) then
+		if istable(player.itemUsing) or IsValid(player.itemUsing) then
 			player.itemUsing.beingUsed = false;
-			player.itemUsing = nil;
 		end
+		player.itemUsing = nil;
+
+		local activeWeapon = player:GetActiveWeapon();
+		if IsValid(activeWeapon) then
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
+		end
+	elseif action == "performing_surgery" then
+		if istable(player.itemUsing) or IsValid(player.itemUsing) then
+			player.itemUsing.beingUsed = false;
+		end
+		player.itemUsing = nil;
+
+		-- Releases the surgery lock; surgeryStage is kept so progress resumes.
+		if cwMedicalSystem and cwMedicalSystem.CancelSurgery then
+			cwMedicalSystem:CancelSurgery(player);
+		end
+		if IsValid(player:GetActiveWeapon()) then
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
+		end
+	elseif action == "heal" or action == "healing" or action == "chloroform" then
+		if istable(player.itemUsing) or IsValid(player.itemUsing) then
+			player.itemUsing.beingUsed = false;
+		end
+		player.itemUsing = nil;
+		if IsValid(player:GetActiveWeapon()) then
+			net.Start("cwResetViewModelIdle");
+			net.Send(player);
+		end
+	elseif action == "hell_teleporting" then
+		if player.cwInfoTable then
+			hook.Run("RunModifyPlayerSpeed", player, player.cwInfoTable, true);
+		end;
+		-- Refund cooldown only if cancelled while active (anti-bait 15s delay).
+		if player._cwHellJauntActive then
+			player._cwHellJauntActive = nil;
+			player:SetCharacterData("nextTeleport", 15);
+		end;
 	end
 end;
 

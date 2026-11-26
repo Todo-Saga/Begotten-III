@@ -1342,18 +1342,26 @@ local zoneEventClasses = {
 };
 
 if Clockwork.command.RegisterType then
-	local zone_tbl = {}
-
-	hook.Add("ClockworkSchemaLoaded", "ZoneCMDType", function ()
-		zone_tbl = table.Merge(zones:GetAll(), zones.supraZones)
-		hook.Remove("ClockworkSchemaLoaded", "ZoneCMDType")
-	end)
-
 	Clockwork.command:RegisterType("Zones", function (current_arg, _args)
 		local matches = {}
+		local zone_tbl = {}
+
+		if (zones and zones.GetAll) then
+			local allZones = zones:GetAll();
+			if (allZones) then
+				for zone in pairs(allZones) do
+					zone_tbl[zone] = true;
+				end;
+			end;
+		end
+		if (zones and zones.supraZones) then
+			for zone in pairs(zones.supraZones) do
+				zone_tbl[zone] = true;
+			end;
+		end
 
 		for zone, v in pairs(zone_tbl) do
-			if string.find(string.lower(zone), string.lower(current_arg)) then
+			if string.find(string.lower(zone), string.lower(current_arg), 1, true) then
 				table.insert(matches, zone)
 			end
 		end
@@ -2500,7 +2508,7 @@ local COMMAND = Clockwork.command:New("PlyHealFull");
 		target:SetNeed("hunger", 0);
 		target:SetNeed("corruption", 0);
 		target:SetNeed("sleep", 0);
-		target:SetNetVar("sanity", max_sanity);
+		target:SetSanityNetVar(max_sanity);
 		target:SetCharacterData("sanity", max_sanity);
 		target:SetCharacterData("Stamina", max_stamina);
 		target:SetNWInt("Stamina", max_stamina);
@@ -2560,7 +2568,7 @@ local COMMAND = Clockwork.command:New("PlyHealFullAll");
 					v:SetNeed("hunger", 0);
 					v:SetNeed("corruption", 0);
 					v:SetNeed("sleep", 0);
-					v:SetNetVar("sanity", max_sanity);
+					v:SetSanityNetVar(max_sanity);
 					v:SetCharacterData("sanity", max_sanity);
 					v:SetCharacterData("Stamina", max_stamina);
 					v:SetNWInt("Stamina", max_stamina);
@@ -3216,7 +3224,8 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 				return false;
 			end
 			
-			if player:GetCharacterData("rank") == 10 and !player:GetCharacterData("kinisgerOverride") then -- Aspirants cannot helljaunt.
+			local kinOverride = player:GetCharacterData("kinisgerOverride");
+			if player:GetCharacterData("rank") == 10 and (not kinOverride or kinOverride == "" or player:GetSubfaction() ~= "Kinisger") then -- Aspirants cannot helljaunt; disguised Kinisgers may still return.
 				Schema:EasyText(player, "peru", "Aspirants cannot helljaunt!");
 				
 				return false;
@@ -3316,17 +3325,31 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 						ParticleEffect(jauntParticle, destination, Angle(0,0,0));
 						sound.Play("misc/summon.wav", destination, 100, 100);
 						player.teleporting = true;
+						player._cwHellJauntActive = true;
 						hook.Run("RunModifyPlayerSpeed", player, player.cwInfoTable, true);
 						
 						timer.Create("summonplayer_"..tostring(player:EntIndex()), jauntTime, 1, function()
 							if IsValid(player) then
 								player.teleporting = false;
+								player._cwHellJauntActive = nil;
 								
 								if player.caughtByCheaple then
 									return;
 								end
 								
-								if player:Alive() then
+								local curWeight = (player.GetInventoryWeight and player:GetInventoryWeight()) or (player.cwInfoTable and player.cwInfoTable.inventoryWeight) or 0;
+								local bCarriedOverweight = false;
+								
+								-- A carried player has to be within their own carry limit as well.
+								if IsValid(player.cwHoldingEnt) and player.cwHoldingEnt:GetClass() == "prop_ragdoll" then
+									local carriedPlayer = Clockwork.entity:GetPlayer(player.cwHoldingEnt);
+									
+									if IsValid(carriedPlayer) and carriedPlayer.GetInventoryWeight and carriedPlayer.GetMaxWeight then
+										bCarriedOverweight = carriedPlayer:GetInventoryWeight() > carriedPlayer:GetMaxWeight();
+									end
+								end
+								
+								if player:Alive() and not player:IsRagdolled() and (player:GetNetVar("tied", 0) or 0) == 0 and curWeight <= player:GetMaxWeight() and not bCarriedOverweight then
 									local target = player.cwHoldingEnt;
 								
 									Clockwork.player:SetSafePosition(player, destination);
@@ -3335,6 +3358,9 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 									util.Decal("PentagramBurn", origin, origin + Vector(0, 0, -256));
 									
 									hook.Run("PlayerTeleported", player);
+
+									-- Corruption is only paid for a completed jaunt.
+									player:HandleNeed("corruption", 50);
 
 									if IsValid(target) then
 										local destinationRaised = destination + Vector(0, 0, 32);
@@ -3372,6 +3398,18 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 										
 										hook.Run("PlayerTeleported", target);
 									end
+								else
+									if player.cwInfoTable then
+										hook.Run("RunModifyPlayerSpeed", player, player.cwInfoTable, true);
+									end;
+									player:StopSound("prototype/transform.mp3");
+									local ragdoll = player:GetRagdollEntity();
+									if IsValid(ragdoll) then
+										ragdoll:StopSound("prototype/transform.mp3");
+									end;
+									-- An interrupted jaunt refunds the main cooldown with a 15s anti-bait delay.
+									player:SetCharacterData("nextTeleport", 15);
+									Schema:EasyText(player, "peru", "Your helljaunt was interrupted!");
 								end
 							end
 						end);
@@ -3379,12 +3417,6 @@ local COMMAND = Clockwork.command:New("HellJaunt");
 						player:SetCharacterData("nextTeleport", 600);
 						
 						Schema:EasyText(player, "red", "You begin to helljaunt away!");
-						
-						timer.Simple(jauntTime, function()
-							if IsValid(player) and player:Alive() then
-									player:HandleNeed("corruption", 50);
-							end
-						end);
 					else
 						Schema:EasyText(player, "peru", "You cannot helljaunt for another "..nextTeleport.." seconds!");
 					end

@@ -5338,7 +5338,7 @@ function cwRecipes:ClockworkInitialized()
 		RECIPE.finishSound = "possession/spiritsting.wav";
 		RECIPE.failSound = "buttons/button2.wav"
 		RECIPE.craftTime = 8
-		RECIPE.craftVerb = "imbueing"
+		RECIPE.craftVerb = "imbuing"
 		RECIPE.experience = 50;
 		
 		function RECIPE:OnCraft(player)
@@ -5367,7 +5367,7 @@ function cwRecipes:ClockworkInitialized()
 		RECIPE.finishSound = "possession/spiritsting.wav";
 		RECIPE.failSound = "buttons/button2.wav"
 		RECIPE.craftTime = 8
-		RECIPE.craftVerb = "imbueing"
+		RECIPE.craftVerb = "imbuing"
 		RECIPE.experience = 50;
 		
 		function RECIPE:OnCraft(player)
@@ -8698,7 +8698,7 @@ function cwRecipes:ClockworkInitialized()
 		RECIPE.finishSound = "possession/spiritsting.wav";
 		RECIPE.failSound = "buttons/button2.wav"
 		RECIPE.craftTime = 8
-		RECIPE.craftVerb = "imbueing"
+		RECIPE.craftVerb = "imbuing"
 		RECIPE.experience = 30;
 		
 		function RECIPE:OnCraft(player)
@@ -8727,7 +8727,7 @@ function cwRecipes:ClockworkInitialized()
 		RECIPE.finishSound = "possession/spiritsting.wav";
 		RECIPE.failSound = "buttons/button2.wav"
 		RECIPE.craftTime = 8
-		RECIPE.craftVerb = "imbueing"
+		RECIPE.craftVerb = "imbuing"
 		RECIPE.experience = 65;
 		
 		function RECIPE:OnCraft(player)

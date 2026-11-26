@@ -234,25 +234,55 @@ function cwRecipes:PlayerCanCraft(player, uniqueID, craftAmount)
 		end
 	end
 	
+	if not isnumber(craftAmount) or not (craftAmount >= 1 and craftAmount <= 9) or math.floor(craftAmount) ~= craftAmount then
+		return hasFlags, false, 100;
+	end;
+
 	local successRate = 100;
+	local availCache = {};
+	local remainingNeeded = {};
+	local hasConsumable = false;
+
+	local function getAvail(uid)
+		if availCache[uid] == nil then
+			availCache[uid] = Clockwork.inventory:GetItemCountByID(inventory, uid);
+		end
+		return availCache[uid];
+	end
 
 	for k, v in pairs(requirements) do
-		local amount = v.amount;
+		local baseAmt = v.amount or 1;
+		local bKeepTool = (v.noTake == true);
+		if not bKeepTool then
+			hasConsumable = true;
+		end;
+		local amount = bKeepTool and baseAmt or (baseAmt * craftAmount);
+		local havePrimary = getAvail(k);
+		local usedPrimary = math.min(havePrimary, amount);
+		availCache[k] = havePrimary - usedPrimary;
+		remainingNeeded[k] = amount - usedPrimary;
+	end;
 
-		amount = amount * craftAmount;
-		
-		if (!Clockwork.inventory:HasItemCountByID(inventory, k, amount)) then
+	if craftAmount > 1 and not hasConsumable then
+		return hasFlags, false, 100;
+	end;
+
+	for k, v in pairs(requirements) do
+		local remaining = remainingNeeded[k] or 0;
+		if remaining > 0 then
 			if v.substitute ~= nil then
-				if (!Clockwork.inventory:HasItemCountByID(inventory, v.substitute, amount)) then
+				local haveSub = getAvail(v.substitute);
+				if haveSub >= remaining then
+					availCache[v.substitute] = haveSub - remaining;
+					remainingNeeded[k] = 0;
+				else
 					hasRequirements = false;
 					break;
-				else
-					break;
-				end
-			end
-
-			hasRequirements = false;
-			break;
+				end;
+			else
+				hasRequirements = false;
+				break;
+			end;
 		end;
 	end;
 
@@ -295,9 +325,12 @@ end;
 
 -- A function used to craft a recipe.
 function cwRecipes:Craft(player, uniqueID, itemIDs, craftAmount)
+	craftAmount = math.max(1, math.floor(tonumber(craftAmount) or 1));
 	local curTime = CurTime();
 	
-	if (IsValid(player) and uniqueID and isstring(uniqueID)) then
+	if (IsValid(player) and isstring(uniqueID) and istable(itemIDs) and #itemIDs <= 9 and isnumber(craftAmount)) then
+		craftAmount = math.floor(craftAmount);
+		if not (craftAmount >= 1 and craftAmount <= 9) then return; end;
 		if (!player.cwNextCraft or player.cwNextCraft < curTime) then
 			player.cwNextCraft = curTime + 3;
 
@@ -328,6 +361,13 @@ function cwRecipes:Craft(player, uniqueID, itemIDs, craftAmount)
 						
 						Clockwork.player:SetAction(player, "crafting", craftTime, 5, function()
 							if (IsValid(player)) then
+								local canFlags, canReq = hook.Run("PlayerCanCraft", player, uniqueID, craftAmount);
+								if (not player:Alive() or player:IsRagdolled() or (player:GetNetVar("tied", 0) or 0) ~= 0 or canFlags == false or canReq == false or !self:PlayerMeetsCraftingItemRequirements(player, recipeTable, itemIDs, false, craftAmount)) then
+									player:SetLocalVar("cwProgressBarVerb", nil);
+									player:SetLocalVar("cwProgressBarItem", nil);
+									return;
+								end;
+
 								recipeTable:Craft(player, itemIDs, false, craftAmount);
 								
 								player:SetLocalVar("cwProgressBarVerb", nil);
@@ -383,69 +423,131 @@ function cwRecipes:PlayerMeetsCraftingItemRequirements(player, recipeTable, item
 	local slottedItems = {};
 	local requirements = recipeTable.requirements;
 	
-	for i = 1, #itemIDs do
-		local itemID = itemIDs[i];
-		
-		for k, v in pairs(inventory) do
-			for k2, v2 in pairs(v) do
-				if v2.itemID == itemID then
-					local itemTable = Clockwork.inventory:FindItemByID(inventory, k, v2.itemID);
-					local condition = itemTable:GetCondition() or 100;
-					
-					conditionAverage = conditionAverage + condition;
-					
-					table.insert(slottedItems, itemTable);
-					table.insert(conditions, condition);
-					break;
-				end
+	local itemLookup = {};
+	for _, v in pairs(inventory) do
+		for _, itemTable in pairs(v) do
+			if itemTable.itemID then
+				itemLookup[itemTable.itemID] = itemTable;
 			end
 		end
 	end
+
+	if table.Count(itemIDs) ~= #itemIDs then return false; end;
+
+	local seen = {};
+	for i = 1, #itemIDs do
+		local itemID = itemIDs[i];
+		if (itemID == nil or (isnumber(itemID) and itemID ~= itemID) or (not isnumber(itemID) and not isstring(itemID))) then
+			return false;
+		end;
+		if seen[itemID] then
+			return false;
+		end;
+		seen[itemID] = true;
+		local itemTable = itemLookup[itemID];
+		if not itemTable then
+			return false;
+		end;
+		local condition = itemTable:GetCondition() or 100;
+		
+		conditionAverage = conditionAverage + condition;
+		
+		table.insert(slottedItems, itemTable);
+		table.insert(conditions, condition);
+	end
 	
-	local temptab = table.Copy(slottedItems);
+	local availableCounts = {};
+	local totalSlotted = #slottedItems;
+	if totalSlotted == 0 then return false; end
 
-	for i = 1, craftAmount do
-		for k, v in pairs(requirements) do
-			local amount = v.amount or 1;
+	for i = 1, totalSlotted do
+		local uid = slottedItems[i].uniqueID;
+		availableCounts[uid] = (availableCounts[uid] or 0) + 1;
+	end
 
-			for i = 1, amount do
-				local goods_found = false;
+	local requiredTotal = 0;
+	local remainingNeeded = {};
+	local takeCounts = {};
 
-				for j = 1, #temptab do
-					if temptab[j].uniqueID == k or temptab[j].uniqueID == v.substitute then
-						table.remove(temptab, j);
-						goods_found = true;
-						break;
+	for k, v in pairs(requirements) do
+		local baseAmt = v.amount or 1;
+		local bKeepTool = (v.noTake == true);
+		local needed = bKeepTool and baseAmt or (baseAmt * craftAmount);
+		requiredTotal = requiredTotal + needed;
+		local havePrimary = availableCounts[k] or 0;
+		local usedPrimary = math.min(havePrimary, needed);
+		availableCounts[k] = havePrimary - usedPrimary;
+		remainingNeeded[k] = needed - usedPrimary;
+		if not bKeepTool and usedPrimary > 0 then
+			takeCounts[k] = (takeCounts[k] or 0) + usedPrimary;
+		end
+	end
+
+	for k, v in pairs(requirements) do
+		local remaining = remainingNeeded[k] or 0;
+		if remaining > 0 then
+			if v.substitute then
+				local haveSub = availableCounts[v.substitute] or 0;
+				if haveSub >= remaining then
+					availableCounts[v.substitute] = haveSub - remaining;
+					remainingNeeded[k] = 0;
+					if v.noTake ~= true then
+						takeCounts[v.substitute] = (takeCounts[v.substitute] or 0) + remaining;
 					end
-				end
-
-				if not goods_found then
+				else
 					Schema:EasyText(player, "lightslategrey", "The items inputted for crafting do not match the selected recipe's requirements!");
 					return false;
 				end
+			else
+				Schema:EasyText(player, "lightslategrey", "The items inputted for crafting do not match the selected recipe's requirements!");
+				return false;
 			end
 		end
 	end
-	
-	if #temptab > 0 then
+
+	if totalSlotted ~= requiredTotal then
 		Schema:EasyText(player, "lightslategrey", "The items inputted for crafting do not match the selected recipe's requirements!");
 		return false;
 	end
 	
+	local consumedCondSum = 0;
+	local consumedCount = 0;
+	local takeCountsCopy = {};
+	for uid, cnt in pairs(takeCounts) do
+		takeCountsCopy[uid] = cnt;
+	end;
+	for i = 1, #slottedItems do
+		local item = slottedItems[i];
+		local uid = item.uniqueID;
+		local rem = takeCountsCopy[uid] or 0;
+		if rem > 0 then
+			takeCountsCopy[uid] = rem - 1;
+			consumedCondSum = consumedCondSum + (conditions[i] or 100);
+			consumedCount = consumedCount + 1;
+		end;
+	end;
+
 	if bTake then
 		for i = 1, #slottedItems do
-			player:TakeItem(slottedItems[i], true);
+			local item = slottedItems[i];
+			local uid = item.uniqueID;
+			local remTake = takeCounts[uid] or 0;
+			if remTake > 0 then
+				takeCounts[uid] = remTake - 1;
+				player:TakeItem(item, true);
+			end
 		end
 	end
 	
+	local avgCondition = (consumedCount > 0) and (consumedCondSum / consumedCount) or (conditionAverage / #conditions);
 	if player:HasBelief("taste_of_iron") then
 		player.conditionAverage = 100;
 	else
 		if recipeTable.category == "Other" or recipeTable.category == "Crafting Materials" then
-			player.conditionAverage = (conditionAverage / #conditions)
+			player.conditionAverage = avgCondition;
 		else
 			-- Makes crafting conditionAverage scale per level (+15 condition on maxlevel)
-			player.conditionAverage = (conditionAverage / #conditions) + Lerp(math.min(player:GetCharacterData("level", 1), cwBeliefs.sacramentLevelCap) / (cwBeliefs.sacramentLevelCap), 0, 15);
+			player.conditionAverage = avgCondition + Lerp(math.min(player:GetCharacterData("level", 1), cwBeliefs.sacramentLevelCap) / (cwBeliefs.sacramentLevelCap), 0, 15);
 		end
 	end
 	
@@ -477,6 +579,7 @@ end
 
 -- A function to get whether a position is clear of players and other piles.
 function cwRecipes:IsAreaClear(position, bPile)
+	if (!position) then return true; end;
 	if (!bPile) then
 		for k, v in pairs (ents.FindInSphere(position, 128)) do
 			local class = v:GetClass();
@@ -487,10 +590,25 @@ function cwRecipes:IsAreaClear(position, bPile)
 		end;
 	end;
 	
+	local pvsPos = position + Vector(0, 0, 24);
 	for _, v in _player.Iterator() do
 		if (v:IsAdmin() or !v:Alive()) then
 			continue;
 		end;
+		
+		if (v:GetPos():DistToSqr(position) > 6250000) then
+			continue;
+		end;
+
+		if not v:TestPVS(pvsPos) then
+			continue;
+		end
+
+		local diff = pvsPos - v:GetShootPos();
+		local lenSq = diff:LengthSqr();
+		if lenSq >= 262144 and v:GetAimVector():Dot(diff) < 0.2 * math.sqrt(lenSq) then
+			continue;
+		end
 		
 		if (Clockwork.entity:CanSeePosition(v, position)) then
 			return false;
@@ -556,23 +674,23 @@ function cwRecipes:Think()
 				if pileTable.lifeTime then
 					if pileTable.lifeTime < curTime then
 						if self:IsAreaClear(pileTable.position, true) then
-							local posFound = false;
-							
-							for k, location in pairs(self.pileLocations) do
-								if posFound then
-									break;
-								end
-								
-								for j = 1, #location do
-									if location[j].occupier == pile:EntIndex() then
-										posFound = true;
-										location[j].occupier = nil;
-										
-										break;
+							if pileTable.location and pileTable.location.occupier == pile:EntIndex() then
+								pileTable.location.occupier = nil;
+							else
+								local posFound = false;
+								for k, location in pairs(self.pileLocations) do
+									if posFound then break; end
+									for j = 1, #location do
+										if location[j].occupier == pile:EntIndex() then
+											posFound = true;
+											location[j].occupier = nil;
+											break;
+										end
 									end
 								end
 							end
 							
+							table.remove(self.Piles[category], i);
 							pile:Remove();
 							break;
 						else
@@ -580,35 +698,11 @@ function cwRecipes:Think()
 							-- This has the added side effect of making sure camping doesn't pay off :)
 							table.remove(self.Piles[category], i);
 							table.insert(self.Piles[category], pileTable);
+							break;
 						end
 					end
 				else
-					if self:IsAreaClear(pileTable.position, true) then
-						local posFound = false;
-						
-						for k, location in pairs(self.pileLocations) do
-							if posFound then
-								break;
-							end
-							
-							for j = 1, #location do
-								if location[j].occupier == pile:EntIndex() then
-									posFound = true;
-									location[j].occupier = nil;
-									
-									break;
-								end
-							end
-						end
-						
-						pile:Remove();
-						break;
-					else
-						-- Move this pile to the back of the queue, we'll check it again after all the others.
-						-- This has the added side effect of making sure camping doesn't pay off :)
-						table.remove(self.Piles[category], i);
-						table.insert(self.Piles[category], pileTable);
-					end
+					pileTable.lifeTime = curTime;
 				end
 			end
 		end
@@ -657,7 +751,9 @@ function cwRecipes:Think()
 								
 								local pileTable = {
 									pile = pile,
-									lifeTime = curTime + self.pileLifetime
+									position = unoccupiedLocation.pos,
+									location = unoccupiedLocation,
+									lifeTime = curTime + (self.pileLifetime or 600)
 								};
 								
 								table.insert(self.Piles[category], pileTable);
@@ -671,5 +767,9 @@ function cwRecipes:Think()
 end;
 
 netstream.Hook("Craft", function(player, uniqueID, itemIDs, craftAmount)
+	if craftAmount == nil then craftAmount = 1; end;
+	if not IsValid(player) or not isstring(uniqueID) or not istable(itemIDs) or #itemIDs > 9 or not isnumber(craftAmount) then return; end;
+	craftAmount = math.floor(craftAmount);
+	if not (craftAmount >= 1 and craftAmount <= 9) then return; end;
 	cwRecipes:Craft(player, uniqueID, itemIDs, craftAmount);
 end);

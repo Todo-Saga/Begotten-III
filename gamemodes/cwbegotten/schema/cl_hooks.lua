@@ -4054,6 +4054,18 @@ function Schema:ModifyItemMarkupTooltip(category, maximumWeight, weight, conditi
 			end
 		end
 		
+		if itemTable.curesDiseases and cwMedicalSystem and cwMedicalSystem.cwDiseaseTable then
+			frame:AddText("Cures Diseases: ", Color(110, 30, 30), nil, 0.9);
+			
+			for i = 1, #itemTable.curesDiseases do
+				local disease = cwMedicalSystem:FindDiseaseByID(itemTable.curesDiseases[i]);
+				
+				if disease then
+					frame:AddText("    "..disease.name, Color(110, 30, 30), nil, 0.9);
+				end
+			end
+		end
+		
 		if itemTable.stopsBleeding then
 			frame:AddText("Stops Bleeding", Color(110, 30, 30), nil, 0.9);
 		end

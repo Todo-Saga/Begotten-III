@@ -106,6 +106,7 @@ local ITEM = Clockwork.item:New("medical_base");
 	ITEM.description = "A rarity indeed! These ancient capsules are renowned for their ability to stop most diseases or cure infections.";
 	ITEM.iconoverride = "materials/begotten/ui/itemicons/antibiotics.png"
 	ITEM.uniqueID = "antibiotics"
+	ITEM.curesDiseases = {"common_cold", "flu", "sepsis"};
 
 	ITEM.ingestible = {orally = true, anally = false};
 	ITEM.itemSpawnerInfo = {category = "Medical", rarity = 800};
@@ -115,16 +116,10 @@ local ITEM = Clockwork.item:New("medical_base");
 		if player:Alive() and !player:IsRagdolled() then
 			Schema:EasyText(player, "olivedrab","You swallow what few pills remain in the bottle, hoping it will cure your ailments.");
 			
-			if player:HasDisease("common_cold") then
-				player:TakeDisease("common_cold", true);
-			end
-			
-			if player:HasDisease("flu") then
-				player:TakeDisease("flu", true);
-			end
-			
-			if player:HasDisease("sepsis") then
-				player:TakeDisease("sepsis", true);
+			for i, disease in ipairs(self.curesDiseases) do
+				if player:HasDisease(disease) then
+					player:TakeDisease(disease, true);
+				end
 			end
 			
 			Clockwork.player:SetMenuOpen(player, false);
@@ -149,6 +144,7 @@ local ITEM = Clockwork.item:New("medical_base");
 	ITEM.description = "A nasty soupy mix in a black jar. Could it be a cure to the Plague?";
 	ITEM.iconoverride = "materials/begotten/ui/itemicons/small_oil.png";
 	ITEM.uniqueID = "black_remedy"
+	ITEM.curesDiseases = {"begotten_plague"};
 
 	ITEM.ingestible = {orally = true, anally = false};
 	ITEM.itemSpawnerInfo = {category = "Medical", rarity = 1500, supercrateOnly = true};
@@ -158,8 +154,10 @@ local ITEM = Clockwork.item:New("medical_base");
 		if player:Alive() and !player:IsRagdolled() then
 			Schema:EasyText(player, "olivedrab","You slurp the disgusting drink, hoping that it will remove what plagues you. After a short time, you feel your mind clear and your skin lighten.");
 			
-			if player:HasDisease("begotten_plague") then
-				player:TakeDisease("begotten_plague", true);
+			for i, disease in ipairs(self.curesDiseases) do
+				if player:HasDisease(disease) then
+					player:TakeDisease(disease, true);
+				end
 			end
 			
 			Clockwork.player:SetMenuOpen(player, false);

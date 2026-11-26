@@ -483,7 +483,7 @@ function cwRecipes:PlayerMeetsCraftingItemRequirements(player, recipeTable, item
 				if haveSub >= remaining then
 					availableCounts[v.substitute] = haveSub - remaining;
 					remainingNeeded[k] = 0;
-					if not (v.noTake == true) then
+					if v.noTake ~= true then
 						takeCounts[v.substitute] = (takeCounts[v.substitute] or 0) + remaining;
 					end
 				else

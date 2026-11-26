@@ -184,17 +184,25 @@ local function ApplyGlobalVarsSync(vars)
 	touchedGlobals = nil
 end
 
-local syncParts
+local syncParts, syncTotal
 
 net.Receive("cwVarsSync", function()
 	local part = net.ReadUInt(16)
 	local total = net.ReadUInt(16)
 	local chunk = net.ReadData(net.ReadUInt(16))
 
+	if total < 1 or part < 1 or part > total then
+		syncParts = nil
+		syncTotal = nil
+		return
+	end
+
 	if part == 1 then
 		syncParts = {}
-	elseif not syncParts or #syncParts ~= part - 1 then
+		syncTotal = total
+	elseif not syncParts or syncTotal ~= total or #syncParts ~= part - 1 then
 		syncParts = nil
+		syncTotal = nil
 		return
 	end
 
@@ -203,6 +211,7 @@ net.Receive("cwVarsSync", function()
 
 	local raw = util.Decompress(table.concat(syncParts))
 	syncParts = nil
+	syncTotal = nil
 	if not raw then return end
 
 	local ok, snapshot = pcall(pon.decode, raw)

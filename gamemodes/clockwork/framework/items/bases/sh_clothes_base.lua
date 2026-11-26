@@ -90,7 +90,7 @@ local ITEM = item.New(nil, true);
 	
 		if !player:Alive() then
 			bSkipProgressBar = true;
-		elseif self.concealsFace and !player:IsRagdolled() then
+		elseif not bSkipProgressBar and self.concealsFace and !player:IsRagdolled() then
 			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
 				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
 				return false;
@@ -285,9 +285,9 @@ local ITEM = item.New(nil, true);
 			return false;
 		end;
 		
-		local wornHelmet = player:GetHelmetEquipped();
+		local clothesItem = player:GetClothesEquipped();
 		
-		if self.concealsFace or (wornHelmet and wornHelmet.concealsFace) then
+		if self.concealsFace or (clothesItem and clothesItem.concealsFace) then
 			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
 				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
 				return false;

@@ -133,7 +133,7 @@ local ITEM = Clockwork.item:New(nil, true)
 		local clothesItem = player:GetClothesEquipped();
 		local helmetItem = player:GetHelmetEquipped();
 		
-		if self.concealsFace or (clothesItem and clothesItem.concealsFace) then
+		if self.concealsFace or (helmetItem and helmetItem.concealsFace) then
 			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
 				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
 				return false;
@@ -283,13 +283,13 @@ local ITEM = Clockwork.item:New(nil, true)
 	end
 
 	-- Called when a player has unequipped the item.
-	function ITEM:OnPlayerUnequipped(player, extraData)
+	function ITEM:OnPlayerUnequipped(player, extraData, bForced)
 		if self.permanent then
 			Schema:EasyText(player, "peru", "This helmet is grafted into your skin and fused with your flesh, and cannot be unequipped!");
 			return false;
 		end
 	
-		if self.concealsFace and player:Alive() and !player:IsRagdolled() then
+		if not bForced and self.concealsFace and player:Alive() and !player:IsRagdolled() then
 			if player.cwLastMaskSwap and CurTime() < player.cwLastMaskSwap + 1.0 then
 				Clockwork.player:Notify(player, "You must wait a moment before swapping gear again.");
 				return false;

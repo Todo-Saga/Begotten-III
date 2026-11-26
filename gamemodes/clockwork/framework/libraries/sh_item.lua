@@ -1435,23 +1435,32 @@ if (SERVER) then
 			weapon:SetNWInt("ItemID", itemTable.itemID);
 		end;
 
-		-- Resend only when the item data changed, with a forced resend every 30s as a desync fallback.
-		local definition = item.GetDefinition(itemTable, true);
-		local signature = util.CRC(util.TableToJSON(definition) or "");
+		-- Resend on O(1) data revision / identity change, with a 30s fallback resend for client desyncs.
 		local curTime = CurTime();
+		local dataRev = itemTable._cwDataRev or 0;
+		local alreadySynced = (
+			weapon._cwLastSentPlayer == player
+			and weapon._cwLastSentItemID == itemTable.itemID
+			and nwItemID == itemTable.itemID
+			and weapon._cwLastSentDataRev == dataRev
+			and curTime - (weapon._cwLastSyncTime or 0) < 30
+		);
 
-		if !(weapon.cwLastSyncSig == signature and weapon.cwLastSyncPlayer == player and curTime - (weapon.cwLastSyncTime or 0) < 30) then
+		if not alreadySynced then
 			net.Start("cwWeaponItemData");
 				net.WriteUInt(weapon:EntIndex(), 16);
-				net.WriteTable(definition);
+				net.WriteTable(item.GetDefinition(itemTable, true));
 			net.Send(player);
 
-			weapon.cwLastSyncSig = signature;
-			weapon.cwLastSyncPlayer = player;
-			weapon.cwLastSyncTime = curTime;
-		end
+			weapon._cwLastSentPlayer = player;
+			weapon._cwLastSentItemID = itemTable.itemID;
+			weapon._cwLastSentDataRev = dataRev;
+			weapon._cwLastSyncTime = curTime;
 
-		return math.random(1, 5);
+			return math.random(2, 5);
+		end;
+
+		return math.random(15, 25);
 	end;
 	
 	--[[

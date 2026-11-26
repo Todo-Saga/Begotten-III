@@ -48,6 +48,18 @@ function Clockwork.storage:Query(player, key, default)
 end
 
 -- A function to close storage for a player.
+local function ScheduleStorageDirtyFlush()
+	if (!Clockwork.ShuttingDown and cwStorage and cwStorage.SaveStorage) then
+		if not timer.Exists("cwStorageDirtyFlush") then
+			timer.Create("cwStorageDirtyFlush", 30, 1, function()
+				if (!Clockwork.ShuttingDown and cwStorage and cwStorage.SaveStorage) then
+					cwStorage:SaveStorage();
+				end;
+			end);
+		end;
+	end;
+end;
+
 function Clockwork.storage:Close(player, bServer)
 	local storageTable = player:GetStorageTable()
 	local OnClose = self:Query(player, "OnClose")
@@ -56,6 +68,11 @@ function Clockwork.storage:Close(player, bServer)
 	if (storageTable and OnClose) then
 		OnClose(player, storageTable, entity)
 	end
+
+	if (IsValid(entity) and entity.cwStorageDirty and cwStorage and cwStorage.storage and cwStorage.storage[entity]) then
+		entity.cwStorageDirty = nil;
+		ScheduleStorageDirtyFlush();
+	end;
 
 	--if (!bServer) then
 		netstream.Start(player, "StorageClose", true)
@@ -174,6 +191,11 @@ function Clockwork.storage:UpdateCash(player, cash)
 					end
 				end
 			end
+
+			if (not istable(cash) and IsValid(storageTable.entity) and cwStorage and cwStorage.storage and cwStorage.storage[storageTable.entity]) then
+				storageTable.entity.cwStorageDirty = true;
+				ScheduleStorageDirtyFlush();
+			end;
 		end
 	end
 end
@@ -373,6 +395,12 @@ function Clockwork.storage:GiveTo(player, itemTable, bMultiple)
 
 		hook.Run("PlayerGiveToStorage", player, storageTable, itemTable)
 
+		local entity = self:Query(player, "entity");
+		if (IsValid(entity) and cwStorage and cwStorage.storage and cwStorage.storage[entity]) then
+			entity.cwStorageDirty = true;
+			ScheduleStorageDirtyFlush();
+		end;
+
 		local definition = item.GetDefinition(itemTable, true)
 			definition.index = nil
 		local players = {}
@@ -412,6 +440,11 @@ function Clockwork.storage:GiveTo(player, itemTable, bMultiple)
 		else
 			Clockwork.inventory:AddInstance(inventory, itemTable)
 		end
+
+		if (IsValid(storageTable.entity) and !bIsPlayerTarget and cwStorage and cwStorage.storage and cwStorage.storage[storageTable.entity]) then
+			storageTable.entity.cwStorageDirty = true;
+			ScheduleStorageDirtyFlush();
+		end;
 		hook.Run("PlayerGiveToStorage", player, storageTable, itemTable)
 	end
 
@@ -478,7 +511,13 @@ function Clockwork.storage:TakeFrom(player, itemTable, bMultiple)
 			player._cwNextInvFullCheck = 0;
 			hook.Run("PlayerTakeFromStorage", player, storageTable, itemTable)
 		
-			if (bIsPlayerTarget) then
+			if (not bIsPlayerTarget) then
+				local entity = self:Query(player, "entity");
+				if (IsValid(entity) and cwStorage and cwStorage.storage and cwStorage.storage[entity]) then
+					entity.cwStorageDirty = true;
+					ScheduleStorageDirtyFlush();
+				end;
+			else
 				storageTable.entity._cwNextInvFullCheck = 0;
 			end
 				

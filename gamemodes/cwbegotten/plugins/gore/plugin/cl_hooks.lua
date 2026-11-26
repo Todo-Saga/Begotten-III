@@ -5,6 +5,11 @@
 	Other credits: kurozael, Alex Grist, Mr. Meow, zigbomb
 --]]
 
+if CLIENT then
+	game.AddParticles("particles/fire_01.pcf");
+	PrecacheParticleSystem("fire_small_01");
+end;
+
 -- Called when an entity's target ID HUD should be painted.
 function cwGore:HUDPaintEntityTargetID(entity, info)
 	local class = entity:GetClass();
@@ -86,6 +91,131 @@ function cwGore:Think()
 		end
 	end
 end
+
+cwGore.ClientGibs = cwGore.ClientGibs or {};
+cwGore.ClientGibIndex = cwGore.ClientGibIndex or 0;
+
+local defaultGibModels = {
+	"models/props_junk/watermelon01_chunk02a.mdl",
+	"models/props_junk/watermelon01_chunk02b.mdl",
+	"models/props_junk/watermelon01_chunk02c.mdl",
+	"models/gibs/antlion_gib_medium_1.mdl",
+	"models/gibs/antlion_gib_small_1.mdl",
+	"models/gibs/antlion_gib_small_2.mdl"
+};
+
+local function EmitClientGibBlood(pos)
+	local effect = EffectData();
+		effect:SetOrigin(pos);
+		effect:SetScale(8);
+	util.Effect("BloodImpact", effect, true, true);
+	util.Decal("Blood", pos + Vector(0, 0, 8), pos - Vector(0, 0, 32));
+end;
+
+net.Receive("cwCreateClientGibs", function()
+	local pos = net.ReadVector();
+	local count = net.ReadUInt(5);
+	local modelCount = net.ReadUInt(4);
+	local models;
+	if (modelCount > 0) then
+		models = {};
+		for i = 1, modelCount do
+			models[i] = net.ReadString();
+		end;
+	else
+		models = defaultGibModels;
+	end;
+	local fadeDelay = net.ReadUInt(9);
+	local dmgForce = Vector(net.ReadFloat(), net.ReadFloat(), net.ReadFloat());
+	local bExplode = net.ReadBool();
+	local bOnFire = net.ReadBool();
+
+	local spawnedGibs;
+	for i = 1, count do
+		local model = models[math.random(1, #models)];
+		local isSkull = (model == "models/gibs/hgibs.mdl");
+		local gib = ents.CreateClientProp(model);
+
+		if (IsValid(gib)) then
+			if (isSkull or count == 1) then
+				gib:SetPos(pos);
+			else
+				gib:SetPos(pos + Vector(math.random(-10, 10), math.random(-10, 10), math.random(0, 15)));
+			end;
+			gib:SetAngles(AngleRand());
+			gib:Spawn();
+			
+			if (!isSkull) then
+				gib:SetMaterial("models/flesh");
+			else
+				EmitClientGibBlood(gib:GetPos());
+				if (bOnFire) then
+					ParticleEffectAttach("fire_small_01", PATTACH_ABSORIGIN_FOLLOW, gib, 0);
+				end;
+			end;
+			
+			gib:SetCollisionGroup(COLLISION_GROUP_DEBRIS);
+
+			local phys = gib:GetPhysicsObject();
+			if (IsValid(phys)) then
+				phys:Wake();
+				if (dmgForce and dmgForce:LengthSqr() > 100) then
+					phys:ApplyForceCenter(dmgForce);
+					phys:AddAngleVelocity(VectorRand() * 300);
+				elseif (bExplode) then
+					phys:SetVelocity(Vector(
+						math.random(-180, 180),
+						math.random(-180, 180),
+						math.random(200, 450)
+					));
+					phys:AddAngleVelocity(VectorRand() * 500);
+				end;
+			end;
+
+			-- Ring buffer management (max 64 active gibs)
+			cwGore.ClientGibIndex = (cwGore.ClientGibIndex % 64) + 1;
+			local oldGib = cwGore.ClientGibs[cwGore.ClientGibIndex];
+			if (IsValid(oldGib)) then
+				oldGib:Remove();
+			end;
+			cwGore.ClientGibs[cwGore.ClientGibIndex] = gib;
+			spawnedGibs = spawnedGibs or {};
+			spawnedGibs[#spawnedGibs + 1] = gib;
+		end;
+	end;
+	if spawnedGibs then
+		timer.Simple(2, function()
+			local maxBlood = math.min(#spawnedGibs, 5);
+			for i = 1, maxBlood do
+				local g = spawnedGibs[i];
+				if (IsValid(g)) then
+					EmitClientGibBlood(g:GetPos());
+				end;
+			end;
+		end);
+		timer.Simple(fadeDelay, function()
+			for i = 1, #spawnedGibs do
+				local g = spawnedGibs[i];
+				if (IsValid(g)) then
+					g:Remove();
+				end;
+			end;
+		end);
+	end;
+end);
+
+net.Receive("cwClearClientGibs", function()
+	if (cwGore.ClientGibs) then
+		for i = 1, 64 do
+			local gib = cwGore.ClientGibs[i];
+			if (IsValid(gib)) then
+				gib:Remove();
+			end;
+		end;
+		cwGore.ClientGibs = {};
+		cwGore.ClientGibIndex = 0;
+	end;
+end);
 
 --[[
 

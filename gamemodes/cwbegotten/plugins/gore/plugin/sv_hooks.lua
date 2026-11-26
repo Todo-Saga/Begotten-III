@@ -116,24 +116,12 @@ function cwGore:FuckMyLife(player, damageInfo)
 				end);
 			end
 		else]]if (math.random(1, 2) == 2) then
-			local gibEntity = ents.Create("prop_physics");
-			
-			if (math.random(1, 2) == 2) then
-				gibEntity:SetModel("models/props_junk/watermelon01_chunk02b.mdl");
-			else
-				gibEntity:SetModel("models/props_junk/watermelon01_chunk02a.mdl");
+			local damagePos = damageInfo:GetDamagePosition();
+			if (!damagePos or damagePos:IsZero()) then
+				damagePos = player:GetPos() + Vector(0, 0, 40);
 			end;
-			
-			gibEntity:SetPos(damageInfo:GetDamagePosition());
-			gibEntity:Spawn();
-			gibEntity:SetMaterial("models/flesh");
-			gibEntity:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
-			
-			timer.Simple(math.random(8, 16), function()
-				if (IsValid(gibEntity)) then
-					gibEntity:Remove();
-				end;
-			end)
+			local model = (math.random(1, 2) == 2) and "models/props_junk/watermelon01_chunk02b.mdl" or "models/props_junk/watermelon01_chunk02a.mdl";
+			self:CreateGibs(damagePos, 1, damageInfo:GetDamageForce(), {model}, math.random(8, 16), player, false);
 		end;
 		
 		player:EmitSound("physics/body/body_medium_break"..math.random(2, 3)..".wav");
@@ -150,6 +138,55 @@ function Schema:EntityRemoved(entity)
 		end
 	end
 end
+util.AddNetworkString("cwCreateClientGibs");
+util.AddNetworkString("cwClearClientGibs");
+
+-- A function to create an amount of gibs at a position (offloaded to client-side props).
+function cwGore:CreateGibs(position, count, damageForce, models, fadeDelay, victim, bExplode, bOnFire)
+	local gibCount = math.floor(math.Clamp(count or 4, 1, 16));
+	local gibFade = math.floor(math.Clamp(fadeDelay or 15, 1, 511));
+	local validModels;
+	if istable(models) then
+		validModels = {};
+		for i = 1, #models do
+			if isstring(models[i]) and models[i] ~= "" then
+				validModels[#validModels + 1] = models[i];
+				if #validModels >= 15 then break; end;
+			end;
+		end;
+	end;
+	local modelCount = validModels and #validModels or 0;
+	local force = damageForce or Vector(0, 0, 0);
+	if force:LengthSqr() > 16000000 then
+		force = force:GetNormalized() * 4000;
+	end;
+
+	local nearbyPlayers = {};
+	local maxDistSqr = 4194304; -- 2048^2
+	for _, v in _player.Iterator() do
+		if (not v:IsBot() and (((v == victim and not victim:Alive()) or (v:TestPVS(position) and v:GetPos():DistToSqr(position) <= maxDistSqr)))) then
+			nearbyPlayers[#nearbyPlayers + 1] = v;
+		end;
+	end;
+
+	if (#nearbyPlayers > 0) then
+		net.Start("cwCreateClientGibs");
+		net.WriteVector(position);
+		net.WriteUInt(gibCount, 5);
+		net.WriteUInt(modelCount, 4);
+		for i = 1, modelCount do
+			net.WriteString(validModels[i]);
+		end;
+		net.WriteUInt(gibFade, 9);
+		net.WriteFloat(force.x);
+		net.WriteFloat(force.y);
+		net.WriteFloat(force.z);
+		net.WriteBool(bExplode == true);
+		net.WriteBool(bOnFire == true);
+		net.Send(nearbyPlayers);
+	end;
+end;
+
 --GORE
 
 --[[

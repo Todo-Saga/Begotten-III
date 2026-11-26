@@ -63,3 +63,20 @@ New-vs-base for one commit of a full clone (needs `upstream/main` fetched):
 - `frame:AddText` "function is broken" and SWEP `self.Weapon` notes are filtered.
 - Plain `luac`/LuaJIT cannot be the syntax check: the code uses GLua syntax
   (`!`, `!=`, `&&`, `//`).
+
+## Upstream guard (`.github/workflows/upstream-guard.yml`)
+
+**Rule: nothing fork-only or AI-related may reach DETrooper.** Never commit
+`AGENTS.md`, `CLAUDE.md`, `.claude/` or `.github/` to a branch meant for
+upstream, and never put AI-tool names, `Co-Authored-By` trailers, session
+links or personal info in commits, branch names, PR text or comments.
+Commit as the repo owner's GitHub noreply identity. Don't write `#<number>`
+in fork commit messages: GitHub links it onto the upstream PR's public timeline.
+
+The guard runs hourly at :47 UTC (or on demand: Actions → Upstream guard →
+Run workflow, optional `ref`) on every fork branch except `main`, `master` and
+`primevalism-update`, and **fails** if a branch's diff vs its merge-base with
+DETrooper `main` adds those files or the words above, or a commit message or
+identity contains them. It warns on `#<number>` in commit messages.
+Local: `git fetch https://github.com/DETrooper/Begotten-III.git main:refs/remotes/upstream/main`
+then `.github/scripts/upstream-guard.sh . <branch>`.

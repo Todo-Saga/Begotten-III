@@ -1,0 +1,56 @@
+name: Upstream guard
+
+# Fails if any branch meant for upstream (everything except main, master and
+# primevalism-update) carries fork-only files (AGENTS.md, CLAUDE.md, .claude/,
+# .github/) or AI-tool mentions in its diff, commit messages or identities,
+# compared with its merge-base with DETrooper/Begotten-III main.
+# Runs hourly and on demand; branches don't need to carry this file.
+# Logic: .github/scripts/upstream-guard.sh. See AGENTS.md.
+
+on:
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch to check (empty = every upstream-bound branch)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-guard
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
+          persist-credentials: false
+
+      - name: Fetch upstream main
+        run: git fetch -q --filter=blob:none https://github.com/DETrooper/Begotten-III.git main:refs/remotes/upstream/main
+
+      - name: Check branches
+        env:
+          REF: ${{ inputs.ref }}
+        run: |
+          echo "### Upstream guard" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "$REF" ]; then
+            branches=$REF
+          else
+            branches=$(git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin |
+              grep -vxE 'HEAD|main|master|primevalism-update')
+          fi
+          rc=0
+          for b in $branches; do
+            .github/scripts/upstream-guard.sh . "refs/remotes/origin/$b" "$b" || rc=1
+          done
+          exit $rc

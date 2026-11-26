@@ -1,0 +1,122 @@
+name: Lua lint
+
+# One lightweight job: GLua syntax check (blocking) + glualint (report only).
+# No GitHub API calls; the only network fetch is the glualint release zip,
+# which is cached after the first run.
+
+on:
+  push:
+    paths: ['**.lua', '.github/glualint.json', '.github/workflows/lua-lint.yml']
+  pull_request:
+    paths: ['**.lua', '.github/glualint.json', '.github/workflows/lua-lint.yml']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Branch, tag or SHA to lint (lets you check PR branches without adding this file to them)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lua-lint-${{ github.event.pull_request.number || inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  GLUALINT_VERSION: '1.29.0'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out code to lint
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || '' }}
+          path: src
+          persist-credentials: false
+
+      - name: Check out lint config
+        # Config comes from the commit that holds this workflow, so a
+        # dispatched ref without .github/ still gets linted the same way.
+        uses: actions/checkout@v4
+        with:
+          path: cfg
+          sparse-checkout: .github
+          persist-credentials: false
+
+      - name: Cache glualint
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ~/glualint
+          key: glualint-${{ env.GLUALINT_VERSION }}-linux
+
+      - name: Download glualint
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p ~/glualint
+          curl -fsSL --retry 3 -o /tmp/glualint.zip \
+            "https://github.com/FPtje/GLuaFixer/releases/download/${GLUALINT_VERSION}/glualint-${GLUALINT_VERSION}-x86_64-linux.zip"
+          unzip -o -q /tmp/glualint.zip -d ~/glualint
+          chmod +x ~/glualint/glualint
+
+      - name: Normalise CR CR LF line endings
+        # Some files end lines with \r\r\n. LuaJIT/GMod read them fine, but
+        # glualint reports a false parse error, so fix them in the CI copy only.
+        working-directory: src
+        run: |
+          grep -rlIZ --include='*.lua' $'\r\r' . | xargs -0 -r perl -pi -e 's/\r+\n/\n/g'
+
+      - name: GLua syntax check and lint
+        working-directory: src
+        run: |
+          set +e
+          ~/glualint/glualint --config ../cfg/.github/glualint.json \
+            lint --output-format github . > ../lint.log 2>&1
+          set -e
+
+          # Drop the SWEP "self.Weapon is the same as self" style note (~1.2k hits).
+          grep -v "is the same as just" ../lint.log > ../lint.filtered || true
+
+          # Annotations (GitHub shows the first 10 warnings / 10 errors per step).
+          grep '^::' ../lint.filtered || true
+
+          errors=$(grep -c '^::error' ../lint.filtered || true)
+          warnings=$(grep -c '^::warning' ../lint.filtered || true)
+          {
+            echo "## Lua lint"
+            echo
+            echo "| Check | Count |"
+            echo "|---|---|"
+            echo "| Parse errors (blocking) | ${errors} |"
+            echo "| Lint warnings (report only) | ${warnings} |"
+            echo
+            if [ "$errors" -gt 0 ]; then
+              echo "### Parse errors"
+              grep '^::error' ../lint.filtered | sed -E 's/^::error file=([^,]*),line=([0-9]+).*::(.*)/- `\1:\2` \3/'
+              echo
+            fi
+            echo "### Warnings by type"
+            echo
+            echo "| Type | Count |"
+            echo "|---|---|"
+            grep '^::warning' ../lint.filtered | sed -E 's/.*title="([^"]*)".*/\1/' \
+              | sort | uniq -c | sort -rn | awk '{c=$1; $1=""; sub(/^ /,""); print "| " $0 " | " c " |"}'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$errors" -gt 0 ]; then
+            echo "::error::${errors} GLua parse error(s); see the job summary."
+            exit 1
+          fi
+
+      - name: Upload full lint log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: glualint-log
+          path: lint.filtered
+          retention-days: 7
+          if-no-files-found: ignore

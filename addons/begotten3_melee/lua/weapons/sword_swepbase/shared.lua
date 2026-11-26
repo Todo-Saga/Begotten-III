@@ -811,7 +811,7 @@ function SWEP:PrimaryAttack()
 		end
 		
 		if offhandAttackTable and takeAmmoOffhand then
-			takeAmmo = (takeAmmo + takeAmmoOffhand) * 0.75;
+			takeAmmo = math.max(1, math.Round((takeAmmo + takeAmmoOffhand) * 0.75));
 		end
 		
 		local attackStaminaCost = takeAmmo;

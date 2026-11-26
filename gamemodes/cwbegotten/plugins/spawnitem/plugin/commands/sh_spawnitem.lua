@@ -7,7 +7,7 @@ if Clockwork.command.RegisterType then
 		for k, v in pairs(item.stored) do
 			local itemName = v("name");
 			
-			if string.find(string.lower(itemName), string.lower(current_arg)) then
+			if string.find(string.lower(itemName), string.lower(current_arg), 1, true) then
 				table.insert(matches, itemName)
 			end
 		end

@@ -113,17 +113,16 @@ function cwAnimatedLegs:CreateLegs()
 		local clothesItem = Clockwork.Client:GetClothesEquipped();
 		
 		if clothesItem and clothesItem.group then
-			if clothesItem.genderless then
-				model = "models/begotten/"..clothesItem.group..".mdl";
-			else
-				model = "models/begotten/"..clothesItem.group.."_"..string.lower(Clockwork.Client:GetGender())..".mdl"
-			end
+			model = Clockwork.item:GetClothesModel(clothesItem, Clockwork.Client:GetGender());
 		else
-			local faction = Clockwork.Client:GetNetVar("kinisgerOverride") or Clockwork.Client:GetFaction();
+			local rawFaction = Clockwork.Client:GetFaction();
+			local rawKin = (rawFaction == "Children of Satan") and Clockwork.Client:GetNetVar("kinisgerOverride") or nil;
+			local faction = (rawKin and rawKin ~= "") and rawKin or rawFaction;
 			local factionTable = Clockwork.faction:FindByID(faction);
 			
 			if factionTable then
-				local subfaction = Clockwork.Client:GetNetVar("kinisgerOverrideSubfaction") or Clockwork.Client:GetNetVar("subfaction");
+				local rawKinSub = (rawFaction == "Children of Satan") and Clockwork.Client:GetNetVar("kinisgerOverrideSubfaction") or nil;
+				local subfaction = (rawKinSub and rawKinSub ~= "") and rawKinSub or Clockwork.Client:GetNetVar("subfaction");
 				
 				if subfaction and factionTable.subfactions then
 					for i, v in ipairs(factionTable.subfactions) do

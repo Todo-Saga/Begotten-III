@@ -1,3 +1,11 @@
+local function IsValidModelCached(mdl)
+	return Clockwork.item:IsValidModelCached(mdl);
+end;
+
+local function GetClothesModel(clothes, gender)
+	return Clockwork.item:GetClothesModel(clothes, gender);
+end;
+
 local overlay;
 
 function PLUGIN:GetProgressBarInfoAction(action, percentage)
@@ -45,17 +53,38 @@ function PLUGIN:Tick()
 	for _, player in _player.Iterator() do
 		player.clothesDrawnThisTick = false;
 	end
+
+	local curTime = CurTime();
+	if self.nextRagdollClothesTick and curTime < self.nextRagdollClothesTick then
+		return;
+	end;
+	self.nextRagdollClothesTick = curTime + 0.1;
 	
 	for k, v in pairs(ents.FindByClass("prop_ragdoll")) do
-		local clothesEnt = v.clothesEnt;
-		
+		local vTab = v:GetTable();
+		if vTab._cwNonHeadRagdoll and not vTab.clothesEnt then continue end;
+		local clothesEnt = vTab.clothesEnt;
 		if !v:IsDormant() and string.sub(v:GetModel(), 1, 21) == "models/begotten/heads" then
-			local vTab = v:GetTable();
-			local model = v:GetNW2String("clothes") or "models/begotten/wanderers/wanderer_male.mdl";
+			local model = v:GetNW2String("clothes");
+			if not model or model == "" or not IsValidModelCached(model) then
+				if model and string.find(model, "_female%.mdl$") then
+					local maleMdl = string.gsub(model, "_female%.mdl$", "_male.mdl");
+					if IsValidModelCached(maleMdl) then
+						model = maleMdl;
+					else
+						model = "models/begotten/wanderers/wanderer_male.mdl";
+					end;
+				else
+					model = "models/begotten/wanderers/wanderer_male.mdl";
+				end;
+			end;
 			
-			if IsValid(clothesEnt) and clothesEnt:GetModel() ~= model then
+			local lowerModel = string.lower(model);
+
+			if IsValid(clothesEnt) and string.lower(clothesEnt:GetModel() or "") ~= lowerModel then
 				clothesEnt:Remove();
 				vTab.clothesEnt = nil;
+				clothesEnt = nil;
 			end
 		
 			if !IsValid(clothesEnt) then
@@ -71,11 +100,6 @@ function PLUGIN:Tick()
 					vTab.clothesEnt = clothesEnt;
 				end
 			else
-				if clothesEnt:GetModel() ~= v:GetNW2String("clothes") then
-					clothesEnt:Remove();
-					vTab.clothesEnt = ClientsideModel(v:GetNW2String("clothes"), RENDERGROUP_BOTH);
-				end
-			
 				if clothesEnt:GetParent() ~= v then
 					clothesEnt:SetParent(v);
 					clothesEnt:AddEffects(EF_BONEMERGE);
@@ -90,74 +114,138 @@ function PLUGIN:Tick()
 				clothesEnt:Remove();
 			end
 			
-			v.clothesEnt = nil;
+			vTab.clothesEnt = nil;
+		else
+			local mdl = v:GetModel();
+			if mdl and mdl ~= "" and string.sub(mdl, 1, 21) ~= "models/begotten/heads" then
+				vTab._cwNonHeadRagdoll = true;
+			end
 		end
 	end
 end
 
 function PLUGIN:PostPlayerDraw(player, flags)
 	if string.sub(player:GetModel(), 1, 21) == "models/begotten/heads" then
-		local plyColor = player:GetColor();
-	
-		if player:Alive() and player:GetMoveType() ~= MOVETYPE_OBSERVER and plyColor.a > 0 and !player:GetNoDraw() then
-			local plyTab = player:GetTable();
-			local clothes = player:GetClothesEquipped();
-			local model;
+		if not player:Alive() or player:GetMoveType() == MOVETYPE_OBSERVER or player:GetNoDraw() then return end
+		local r, g, b, a = 255, 255, 255, 255;
+		if player.GetColor4Part then
+			r, g, b, a = player:GetColor4Part();
+		else
+			local c = player:GetColor();
+			r, g, b, a = c.r, c.g, c.b, c.a;
+		end;
+		if a <= 0 then return end
+
+		local plyTab = player:GetTable();
+		local clothes = player:GetClothesEquipped();
+		local rawFaction = player:GetFaction();
+		local gender = player:GetGender();
+		local rawKinFaction = (rawFaction == "Children of Satan") and player:GetNetVar("kinisgerOverride") or nil;
+		local kinFaction = (rawKinFaction and rawKinFaction ~= "") and rawKinFaction or nil;
+		local subfaction = player:GetNetVar("subfaction");
+		-- The override subfaction only applies when the player's actual faction is Children of Satan.
+		if rawFaction == "Children of Satan" then
+			local overrideSub = player:GetNetVar("kinisgerOverrideSubfaction");
+			if overrideSub and overrideSub ~= "" then
+				subfaction = overrideSub;
+			end;
+		end;
+
+		local clothesID = clothes and clothes.uniqueID or false;
+		local clothesGroup = clothes and clothes.group or false;
+		local model = plyTab._cwCachedClothesModel;
+
+		if plyTab._cwCachedClothesID ~= clothesID
+			or plyTab._cwCachedClothesGroup ~= clothesGroup
+			or plyTab._cwCachedRawFaction ~= rawFaction
+			or plyTab._cwCachedKinFaction ~= kinFaction
+			or plyTab._cwCachedSubfaction ~= subfaction
+			or plyTab._cwCachedGender ~= gender then
+			model = nil;
 
 			if clothes and clothes.group then
-				if clothes.genderless then
-					model = "models/begotten/"..clothes.group..".mdl";
-				else
-					model = "models/begotten/"..clothes.group.."_"..string.lower(player:GetGender())..".mdl"
-				end
+				model = GetClothesModel(clothes, gender);
 			else
-				local faction = player:GetFaction();
-				
-				if faction then
-					if faction == "Children of Satan" then
-						faction = player:GetNetVar("kinisgerOverride") or faction;
-					end
-					
-					local factionTable = Clockwork.faction:FindByID(faction);
-					
-					if factionTable then
-						local subfaction = player:GetNetVar("subfaction");
-						
-						if faction == "Children of Satan" then
-							subfaction = player:GetNetVar("kinisgerOverrideSubfaction") or subfaction;
-						end
+				local faction = kinFaction or rawFaction;
 
+				if faction then
+					local factionTable = Clockwork.faction:FindByID(faction);
+
+					if factionTable then
 						if subfaction and factionTable.subfactions then
 							for i, v in ipairs(factionTable.subfactions) do
 								if v.name == subfaction and v.models then
-									model = v.models[string.lower(player:GetGender())].clothes;
-								
-									break;
+									local gModels = v.models[string.lower(gender or GENDER_MALE)];
+									if gModels then
+										model = gModels.clothes;
+										break;
+									end;
 								end
 							end
 						end
-						
-						if !model then
-							model = factionTable.models[string.lower(player:GetGender())].clothes;
+
+						if !model and factionTable.models then
+							local gModels = factionTable.models[string.lower(gender or GENDER_MALE)];
+							if gModels then
+								model = gModels.clothes;
+							end;
 						end
 					end
 				end
 			end
-			
+
+			if not model or not IsValidModelCached(model) then
+				local isFemale = (gender == GENDER_FEMALE);
+				local fallbackMdl = isFemale and "models/begotten/wanderers/wanderer_female.mdl" or "models/begotten/wanderers/wanderer_male.mdl";
+				if not IsValidModelCached(fallbackMdl) then
+					fallbackMdl = "models/begotten/wanderers/wanderer_male.mdl";
+				end
+				if model and string.find(model, "_female%.mdl$") then
+					local maleMdl = string.gsub(model, "_female%.mdl$", "_male.mdl");
+					if IsValidModelCached(maleMdl) then
+						model = maleMdl;
+					else
+						model = fallbackMdl;
+					end;
+				else
+					model = fallbackMdl;
+				end;
+			end;
+
+			plyTab._cwCachedClothesID = clothesID;
+			plyTab._cwCachedClothesGroup = clothesGroup;
+			plyTab._cwCachedRawFaction = rawFaction;
+			plyTab._cwCachedKinFaction = kinFaction;
+			plyTab._cwCachedSubfaction = subfaction;
+			plyTab._cwCachedGender = gender;
+			plyTab._cwCachedClothesModel = model;
+			plyTab._cwCachedClothesModelLower = model and string.lower(model) or nil;
+		end;
+
 			local clothesEnt = plyTab.clothesEnt;
+			local lowerModel = plyTab._cwCachedClothesModelLower;
 			
-			if IsValid(clothesEnt) and clothesEnt:GetModel() ~= model then
+			if IsValid(clothesEnt) and (not lowerModel or (clothesEnt._cwLowerModel or string.lower(clothesEnt:GetModel() or "")) ~= lowerModel) then
 				clothesEnt:Remove();
 				plyTab.clothesEnt = nil;
+				clothesEnt = nil;
 			end
 			
 			if !IsValid(clothesEnt) then
 				if model then
 					plyTab.clothesEnt = ClientsideModel(model, RENDERGROUP_BOTH);
 					clothesEnt = plyTab.clothesEnt;
+					if not IsValid(clothesEnt) then return; end;
+					clothesEnt._cwLowerModel = lowerModel;
+					clothesEnt:SetPos(player:GetPos());
 					clothesEnt:SetSkin(player:GetSkin());
 				else
 					return;
+				end
+			else
+				local plySkin = player:GetSkin();
+				if clothesEnt:GetSkin() ~= plySkin then
+					clothesEnt:SetSkin(plySkin);
 				end
 			end
 			
@@ -176,11 +264,14 @@ function PLUGIN:PostPlayerDraw(player, flags)
 				clothesEnt:AddEffects(EF_BONEMERGE);
 			end
 
-			clothesEnt:SetColor(plyColor);
+			if clothesEnt.SetColor4Part then
+				clothesEnt:SetColor4Part(r, g, b, a);
+			else
+				clothesEnt:SetColor(player:GetColor());
+			end;
 
 			plyTab.clothesDrawnThisTick = true;
 		end
-	end
 end
 
 function PLUGIN:Think()
@@ -421,7 +512,7 @@ end]]--
 function PLUGIN:EntityRemoved(entity, bFullUpdate)
 	if bFullUpdate then return end;
 
-	if IsValid(entity) and entity:IsPlayer() or entity:GetClass() == "prop_ragdoll" then
+	if IsValid(entity) and (entity:IsPlayer() or entity:GetClass() == "prop_ragdoll") then
 		if IsValid(entity.clothesEnt) then
 			entity.clothesEnt:Remove();
 		end

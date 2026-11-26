@@ -38,7 +38,7 @@ end;
 
 -- Called when the entity's transmit state should be updated.
 function ENT:UpdateTransmitState()
-	return TRANSMIT_ALWAYS;
+	return TRANSMIT_PVS;
 end;
 
 -- A function to get the entity's item table.
@@ -179,6 +179,16 @@ function ENT:Think()
 		end;
 	end;]]--
 	
+	if (not self:IsPlayerHolding() and not util.IsInWorld(self:GetPos())) then
+		self._cwOutOfWorldSince = self._cwOutOfWorldSince or curTime;
+		if (curTime - self._cwOutOfWorldSince >= 5) then
+			self:Remove();
+			return;
+		end;
+	else
+		self._cwOutOfWorldSince = nil;
+	end;
+
 	hook.Run("ItemEntityThink", self, itemTable);
 
 	self.lastThink = curTime;

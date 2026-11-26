@@ -124,7 +124,16 @@ local ITEM = item.New(nil, true);
 				
 					if not weaponItem.usesMagazine then
 						table.insert(weaponItemAmmo, self.ammoType);
-						
+						local existingConditions = weaponItem:GetData("RoundConditions");
+						local conditions = istable(existingConditions) and table.Copy(existingConditions) or {};
+						while #conditions > #weaponItemAmmo - 1 do
+							table.remove(conditions);
+						end;
+						while #conditions < #weaponItemAmmo - 1 do
+							table.insert(conditions, 100);
+						end;
+						table.insert(conditions, self:GetCondition() or 100);
+						weaponItem:SetData("RoundConditions", conditions);
 						weaponItem:SetData("Ammo", weaponItemAmmo);
 					elseif #weaponItemAmmo <= 0 then
 						if self.ammoMagazineSize then
@@ -135,13 +144,15 @@ local ITEM = item.New(nil, true);
 									table.insert(weaponItemAmmo, self.ammoType);
 								end
 
+								weaponItem:SetData("RoundConditions", {});
+								weaponItem:SetData("MagCondition", self:GetCondition() or 100);
 								weaponItem:SetData("Ammo", weaponItemAmmo);
 							end
 						else
 							-- Chambered single round.
-							 
 							table.insert(weaponItemAmmo, self.ammoType);
-							
+							weaponItem:SetData("MagCondition", -1);
+							weaponItem:SetData("RoundConditions", {self:GetCondition() or 100});
 							weaponItem:SetData("Ammo", weaponItemAmmo);
 						end
 					end

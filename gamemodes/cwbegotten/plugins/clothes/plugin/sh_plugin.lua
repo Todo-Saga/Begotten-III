@@ -7,6 +7,12 @@
 
 local PLUGIN = PLUGIN;
 
+function PLUGIN:GetClothesModel(clothes, gender)
+	return Clockwork.item:GetClothesModel(clothes, gender);
+end;
+
+cwClothes = PLUGIN;
+
 Clockwork.kernel:IncludePrefixed("cl_hooks.lua")
 Clockwork.kernel:IncludePrefixed("sv_plugin.lua")
 

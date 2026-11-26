@@ -6,6 +6,22 @@ local table = table;
 local vgui = vgui;
 local math = math;
 
+local function SortCategory(a, b)
+	return tostring(a.category or "") < tostring(b.category or "");
+end;
+
+local function SortItemByName(a, b)
+	local nameA = tostring(a("name") or a.name or a.uniqueID or "");
+	local nameB = tostring(b("name") or b.name or b.uniqueID or "");
+	return nameA < nameB;
+end;
+
+local function SortItemByID(a, b)
+	local idA = tonumber(a("itemID") or a.itemID) or 0;
+	local idB = tonumber(b("itemID") or b.itemID) or 0;
+	return idA < idB;
+end;
+
 local PANEL = {};
 
 -- Called when the panel is initialized.
@@ -149,7 +165,10 @@ function PANEL:Rebuild()
 	end
 	
 	if string.find(playerModel, "models/begotten/heads") then
-		local factionTable = Clockwork.faction:FindByID(Clockwork.Client:GetNetVar("kinisgerOverride") or Clockwork.Client:GetFaction());
+		local rawFaction = Clockwork.Client:GetFaction();
+		local rawKinFaction = (rawFaction == "Children of Satan") and Clockwork.Client:GetNetVar("kinisgerOverride") or nil;
+		local kinFaction = (rawKinFaction and rawKinFaction ~= "") and rawKinFaction or nil;
+		local factionTable = Clockwork.faction:FindByID(kinFaction or rawFaction);
 		local gender = string.lower(Clockwork.Client:GetGender());
 	
 		if cwSanity and Clockwork.Client:Sanity() <= 20 then
@@ -159,15 +178,12 @@ function PANEL:Rebuild()
 		end
 
 		if clothesItem and clothesItem.group then
-			if clothesItem.genderless then
-				playerModel = "models/begotten/"..clothesItem.group..".mdl";
-			else
-				playerModel = "models/begotten/"..clothesItem.group.."_"..string.lower(gender)..".mdl";
-			end
+			playerModel = Clockwork.item:GetClothesModel(clothesItem, gender);
 		elseif factionTable then
 			playerModel = factionTable.models[gender].clothes;
 		
-			local subfaction = Clockwork.Client:GetNetVar("subfaction");
+			local overrideSub = (rawFaction == "Children of Satan") and Clockwork.Client:GetNetVar("kinisgerOverrideSubfaction") or nil;
+			local subfaction = (overrideSub and overrideSub ~= "") and overrideSub or Clockwork.Client:GetNetVar("subfaction");
 			
 			if subfaction and factionTable.subfactions then
 				for i, v in ipairs(factionTable.subfactions) do
@@ -265,9 +281,7 @@ function PANEL:Rebuild()
 		};
 	end;
 	
-	table.sort(categories.equipment, function(a, b)
-		return a.category < b.category;
-	end);
+	table.sort(categories.equipment, SortCategory);
 	
 	for k, v in pairs(itemsList.inventory) do
 		categories.inventory[#categories.inventory + 1] = {
@@ -276,9 +290,7 @@ function PANEL:Rebuild()
 		};
 	end;
 	
-	table.sort(categories.inventory, function(a, b)
-		return a.category < b.category;
-	end);
+	table.sort(categories.inventory, SortCategory);
 	
 	--Clockwork.plugin:Call("PlayerInventoryRebuilt", self, categories);
 	
@@ -298,9 +310,7 @@ function PANEL:Rebuild()
 		local slots = {"Primary", "Secondary", "Tertiary"};
 		
 		for k, v in pairs(categories.equipment) do
-			table.sort(v.itemsList, function(a, b)
-				return a("name") < b("name");
-			end);
+			table.sort(v.itemsList, SortItemByName);
 
 			for k2, v2 in pairs(v.itemsList) do
 				local itemData = {
@@ -467,9 +477,7 @@ function PANEL:Rebuild()
 			--local collapsibleCategory = vgui.Create("DForm", self);
 			--local categoryList = vgui.Create("DPanelList", self);
 
-			table.sort(v.itemsList, function(a, b)
-				return a("itemID") < b("itemID");
-			end);
+			table.sort(v.itemsList, SortItemByID);
 			
 			local items = {};
 			

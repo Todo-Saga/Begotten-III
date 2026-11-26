@@ -260,6 +260,13 @@ function cwStorage:StartLockpick(player)
 		return;
 	end;
 
+	if (IsValid(entity.LockpickingPlayer) and entity.LockpickingPlayer:Alive() and not entity.LockpickingPlayer:IsRagdolled() and entity.LockpickingPlayer.Lockpicking and entity.LockpickingPlayer.LockpickContainer == entity) then
+		Schema:EasyText(player, "peru", "Someone is already lockpicking this container!");
+		return;
+	else
+		entity.LockpickingPlayer = nil;
+	end;
+
 	if (!entity.LockpickCooldown or CurTime() > entity.LockpickCooldown) then
 		if (!player.LockpickCooldown or CurTime() > player.LockpickCooldown) then
 			local lockstrength = entity.cwLockTier or 1;
@@ -313,6 +320,7 @@ function cwStorage:LockpickFail(player, timeout)
 	
 	player.LockpickContainer = nil;
 	player.Lockpicking = nil;
+	player.ActiveContainer = nil;
 	player.LockpickCooldown = curTime + 1;
 	
 	if (IsValid(entity)) then

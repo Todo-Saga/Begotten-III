@@ -7,6 +7,8 @@
 
 local playerMeta = FindMetaTable("Player")
 
+local ARMOR_DAMAGE_TYPES = {DMG_BULLET, DMG_BUCKSHOT, DMG_CLUB, DMG_FALL, DMG_SLASH, DMG_VEHICLE};
+
 function PLUGIN:PlayerThink(player, curTime)
 	player.hitThisTick = false;
 end
@@ -91,6 +93,10 @@ function PLUGIN:PreEntityTakeDamage(player, damageInfo)
 end
 
 function PLUGIN:EntityTakeDamageArmor(player, damageInfo)
+	if IsValid(player) and player:IsPlayer() then
+		player._cwDmgHitGroup = nil;
+	end;
+
 	if damageInfo:IsDamageType(DMG_BLAST) then
 		return;
 	end
@@ -109,33 +115,27 @@ function PLUGIN:EntityTakeDamageArmor(player, damageInfo)
 	
 	if ((player:IsPlayer() or player.isTrainingDummy or (player:IsNextBot() and player.Armor)) and attacker and (attacker:IsPlayer() or attacker:IsNPC() or attacker:IsNextBot())) then
 		local damageType = damageInfo:GetDamageType();
-		local damageTypes = {DMG_BULLET, DMG_BUCKSHOT, DMG_CLUB, DMG_FALL, DMG_SLASH, DMG_VEHICLE};
 		
+		local bValidDamageType = false;
+		for i = 1, #ARMOR_DAMAGE_TYPES do
+			if damageInfo:IsDamageType(ARMOR_DAMAGE_TYPES[i]) then
+				damageType = ARMOR_DAMAGE_TYPES[i];
+				bValidDamageType = true;
+				break;
+			end
+		end
+
+		if !bValidDamageType then
+			return;
+		end
+
 		if !damagePosition then
 			damagePosition = damageInfo:GetDamagePosition() or Vector(0, 0, 0);
 		end
 		
 		if !hitGroup and player:IsPlayer() then
-			hitGroup = player:LastHitGroup();
-			
-			if IsValid(attacker) then
-				--local activeWeapon = attacker:GetActiveWeapon();
-				
-				--if activeWeapon:IsValid() and activeWeapon.Base == "sword_swepbase" then
-					hitGroup = Clockwork.kernel:GetRagdollHitGroup(player, damagePosition);
-				--end
-			end
-		end
-		
-		for i = 1, #damageTypes do
-			if damageInfo:IsDamageType(damageTypes[i]) then
-				damageType = damageTypes[i];
-				break;
-			end
-		end
-
-		if !table.HasValue(damageTypes, damageType) then
-			return;
+			hitGroup = Clockwork.kernel:GetRagdollHitGroup(player, damagePosition);
+			player._cwDmgHitGroup = hitGroup;
 		end
 		
 		if (hitGroup == 0) then

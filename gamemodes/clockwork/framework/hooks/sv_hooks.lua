@@ -1798,45 +1798,43 @@ do
 		end
 	end
 
+	local cwNextThink = 0
+	local cwNextSecond = 0
+	local cwNextHalfSecond = 0
+
 	-- Called each tick.
-	-- Interleaved player time-slicing to distribute player think calculations across ticks.
-	-- Preserves exact PlayerThink -> OnePlayerSecond (5x = 1.0s) -> OnePlayerHalfSecond (3x = 0.6s) order.
+	-- Batched like base: every player thinks in one pass every cwThinkRate seconds.
+	-- (Per-player staggering was measured to cost ~+9 ms/s at 60 players in combat.)
 	function GM:Tick()
 		local curTime = CurTime()
-		local staggerStep = cwThinkRate / 10
+		if (curTime < cwNextThink) then return end
+
+		cwNextThink = curTime + cwThinkRate
+		local doSecond = curTime >= cwNextSecond
+		local doHalfSecond = curTime >= cwNextHalfSecond
+		if (doSecond) then cwNextSecond = curTime + 1 end
+		if (doHalfSecond) then cwNextHalfSecond = curTime + 0.5 end
 
 		for _, player in _player.Iterator() do
-			local plyTab = player:GetTable()
-			local nextThink = plyTab.cwNextThink
+			local initialized = player:HasInitialized()
+			if (initialized) then
+				local plyTab = player:GetTable()
+				local alive = player:Alive()
+				local infoTable = plyTab.cwInfoTable
+				RefreshInfoTable(player, plyTab, infoTable)
 
-			if not nextThink then
-				plyTab.cwNextThink = curTime + ((player:EntIndex() % 10) * staggerStep)
-			elseif curTime >= nextThink then
-				-- Re-arm from curTime like base (tick-quantised cadence, ~0.21s think / 1s / 0.5s gates).
-				plyTab.cwNextThink = curTime + cwThinkRate
+				hook.Run("PlayerThink", player, curTime, infoTable, alive, initialized, plyTab)
+				if not IsValid(player) then continue end
 
-				local initialized = player:HasInitialized()
-				if (initialized) then
-					local alive = player:Alive()
-					local infoTable = plyTab.cwInfoTable
-					RefreshInfoTable(player, plyTab, infoTable)
-
-					hook.Run("PlayerThink", player, curTime, infoTable, alive, initialized, plyTab)
-
+				if (doSecond) then
+					alive = player:Alive()
+					hook.Run("OnePlayerSecond", player, curTime, infoTable, alive, initialized, plyTab)
 					if not IsValid(player) then continue end
+				end
 
-					if (not plyTab.cwNextSecond or curTime >= plyTab.cwNextSecond) then
-						plyTab.cwNextSecond = curTime + 1
-						alive = player:Alive()
-						hook.Run("OnePlayerSecond", player, curTime, infoTable, alive, initialized, plyTab)
-						if not IsValid(player) then continue end
-					end
-
-					if (not plyTab.cwNextHalfSecond or curTime >= plyTab.cwNextHalfSecond) then
-						plyTab.cwNextHalfSecond = curTime + 0.5
-						alive = player:Alive()
-						hook.Run("OnePlayerHalfSecond", player, curTime, infoTable, alive, initialized, plyTab)
-					end
+				if (doHalfSecond) then
+					alive = player:Alive()
+					hook.Run("OnePlayerHalfSecond", player, curTime, infoTable, alive, initialized, plyTab)
 				end
 			end
 		end

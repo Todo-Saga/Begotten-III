@@ -23,7 +23,7 @@ do
 
 		hook.Run("PlayerModelChanged", self, strPath, oldModel)
 
-		if (SERVER) then
+		if (SERVER and strPath ~= oldModel) then
 			netstream.Start(nil, "PlayerModelChanged", self:EntIndex(), strPath, oldModel)
 		end
 

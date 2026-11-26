@@ -71,7 +71,7 @@ function netvars.AreEqual(old, new)
 end
 
 function playerMeta:SyncVars()
-	if (not IsValid(self)) then return end
+	if (not IsValid(self) or self:IsBot()) then return end
 
 	local syncTable = {}
 

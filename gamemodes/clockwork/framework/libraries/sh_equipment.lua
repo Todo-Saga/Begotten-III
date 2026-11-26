@@ -76,6 +76,16 @@ function Clockwork.equipment:GetItemEquipped(player, itemTable, category)
 end
 
 if SERVER then
+	local function GetHumanRecipients()
+		local players = {};
+		for _, p in _player.Iterator() do
+			if IsValid(p) and not p:IsBot() then
+				players[#players + 1] = p;
+			end;
+		end;
+		return players;
+	end;
+
 	function Clockwork.equipment:EquipItem(player, itemTable, slot)
 		if !itemTable then
 			return false;
@@ -110,8 +120,11 @@ if SERVER then
 		
 		player.equipmentSlots[slot] = itemTable;
 		
-		item.SendToPlayer(PlayerCache or _player.GetAll(), itemTable);
-		netstream.Start(PlayerCache or _player.GetAll(), "UpdateEquipment", {player, slot, itemTable.itemID});
+		local recipients = GetHumanRecipients();
+		if #recipients > 0 then
+			item.SendToPlayer(recipients, itemTable);
+			netstream.Start(recipients, "UpdateEquipment", {player, slot, itemTable.itemID});
+		end;
 		
 		if itemTable.equipmentSaveString then
 			if #itemTable.slots > 1 then
@@ -201,7 +214,7 @@ if SERVER then
 		
 		player.equipmentSlots[slot] = nil;
 		
-		local players = PlayerCache or _player.GetAll();
+		local players = GetHumanRecipients();
 					
 		-- Rearrange the slots.
 		if slot ~= itemTable.slots[#itemTable.slots] then
@@ -330,7 +343,7 @@ if SERVER then
 	end
 	
 	function Clockwork.equipment:SyncEquipment(player)
-		if (!IsValid(player)) then
+		if (!IsValid(player) or player:IsBot()) then
 			return;
 		end;
 
@@ -545,11 +558,13 @@ if SERVER then
 		
 		local recipients = {};
 		for _, v in _player.Iterator() do
-			if v == player or v:HasInitialized() then
+			if not v:IsBot() and (v == player or v:HasInitialized()) then
 				recipients[#recipients + 1] = v;
 			end
 		end
-		Clockwork.equipment:NetworkEquipmentToPlayer(player, recipients);
+		if #recipients > 0 then
+			Clockwork.equipment:NetworkEquipmentToPlayer(player, recipients);
+		end
 	end);
 else
 	-- A function to get the entity's real position.

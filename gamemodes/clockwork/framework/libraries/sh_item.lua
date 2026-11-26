@@ -1407,7 +1407,19 @@ if (SERVER) then
 		@details A function to send an item to a player.
 	--]]
 	function item.SendToPlayer(player, itemTable)
-		if (itemTable and ((istable(player) and #player > 0) or IsValid(player))) then
+		if not itemTable then return; end;
+		if istable(player) then
+			local humans = {};
+			for i = 1, #player do
+				local p = player[i];
+				if IsValid(p) and not p:IsBot() then
+					humans[#humans + 1] = p;
+				end;
+			end;
+			if #humans > 0 then
+				netstream.Start(humans, "ItemData", item.GetDefinition(itemTable, true));
+			end;
+		elseif (IsValid(player) and not player:IsBot()) then
 			netstream.Start(
 				player, "ItemData", item.GetDefinition(itemTable, true)
 			);

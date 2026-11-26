@@ -1,3 +1,5 @@
+DEFINE_BASECLASS("begotten_firearm_base");
+
 -- Variables that are used on both client and server
 SWEP.Gun = ("bb_crossbow")					-- must be the name of your swep
 SWEP.Category				= "Begotten"
@@ -188,6 +190,15 @@ function SWEP:PrimaryAttack()
 			end
 		end
 	end
+end
+
+function SWEP:Holster(wep)
+	local canHolster = BaseClass.Holster(self, wep);
+	if canHolster ~= false and IsValid(self.Owner) and self.Owner:IsPlayer() and self.SendWeaponAnim then
+		self:SendWeaponAnim(ACT_VM_IDLE);
+	end
+
+	return canHolster;
 end
 
 function SWEP:PreDrawViewModel(vm)

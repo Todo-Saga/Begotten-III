@@ -170,11 +170,23 @@ function SWEP:Equip()
 end
  
 function SWEP:Deploy()
+	if SERVER then
+		self._cwLastSentItemID = nil;
+		self._cwSyncCount = 0;
+		self.nextItemSend = 0;
+	end
 	--if CLIENT then
 		self:SetIronsights(false, self.Owner)
 	--end
 	
 	self:SetHoldType(self.HoldType)
+
+	self.ironMultiplier = 0;
+	self.bInRunSights = false;
+	local deployDelay = self.DeployDelay or 0.4;
+	-- Never shorten a pending RPM cooldown by swapping weapons.
+	self.Weapon:SetNextPrimaryFire(math.max(self.Weapon:GetNextPrimaryFire(), CurTime() + deployDelay));
+	self.Weapon:SetNextSecondaryFire(math.max(self.Weapon:GetNextSecondaryFire(), CurTime() + deployDelay));
 
 	--self.Weapon:SetNWBool("Reloading", false)
    
@@ -195,7 +207,11 @@ function SWEP:OnDrop()
 	self:OnRemove();
 end
  
-function SWEP:Holster()
+function SWEP:Holster(wep)
+	self.ironMultiplier = 0;
+	self.bInRunSights = false;
+	if self.SightsPos then self.IronSightsPos = self.SightsPos; end;
+	if self.SightsAng then self.IronSightsAng = self.SightsAng; end;
 	if IsValid(self.Owner) and self.Owner:IsPlayer() then
 		if CLIENT then
 			local vm = self.Owner:GetViewModel()
@@ -204,12 +220,17 @@ function SWEP:Holster()
 				self:ResetBonePositions(vm)
 			end
 		else
-			self.Owner:SetFOV(0, self:GetIronsightTime() / 2);
+			-- Do not leave the zoom, ironsights flag or hidden viewmodel behind on a holster.
+			if IsValid(self) then
+				self:SetIronsights(false);
+			end
+			self.Owner:SetFOV(0, (self:GetIronsightTime() or 0.25) / 2);
+			self.Owner:DrawViewModel(true);
 		end
 	end
 	
 	if self.OnHolster then
-		self:OnHolster();
+		self:OnHolster(wep);
 	end
 	
 	if CLIENT then
@@ -404,6 +425,8 @@ function SWEP:CanFireBegotten()
 			else
 				return false;
 			end
+		else
+			return false;
 		end
 	end
 	
@@ -416,6 +439,7 @@ function SWEP:TakeAmmoBegotten(amount)
 		
 		if itemTable then
 			local ammo = itemTable:GetData("Ammo");
+			local magCondBefore = itemTable.GetData and itemTable:GetData("MagCondition");
 			local magazine;
 			
 			if itemTable.usesMagazine then
@@ -436,23 +460,52 @@ function SWEP:TakeAmmoBegotten(amount)
 				ammo = {};
 			end
 			
+			local ammoSnapshot = ammo;
+			local roundConditions;
+			if itemTable.SetData then
+				if table.IsEmpty(ammoSnapshot) then
+					itemTable:SetData("MagCondition", -1);
+				end;
+				itemTable:SetData("Ammo", ammoSnapshot);
+				local existingRoundConditions = itemTable:GetData("RoundConditions");
+				roundConditions = istable(existingRoundConditions) and table.Copy(existingRoundConditions) or nil;
+				if roundConditions and #roundConditions > 0 then
+					local removeCount = amount or 1;
+					if #roundConditions > removeCount then
+						for i = 1, removeCount do
+							table.remove(roundConditions, 1);
+						end;
+					else
+						roundConditions = {};
+					end;
+					itemTable:SetData("RoundConditions", roundConditions);
+				end;
+			end;
+
 			if SERVER then
-				if table.IsEmpty(ammo) and magazine then
+				if table.IsEmpty(ammoSnapshot) and magazine then
 					if IsValid(self.Owner) and self.Owner:IsPlayer() then
 						local magazineItemID = string.gsub(string.lower(magazine), " ", "_");
-						local magazineItem = item.CreateInstance(magazineItemID);
+						local magazineItem = item.CreateInstance(magazineItemID, nil, nil, true);
 						
 						if magazineItem and magazineItem.SetAmmoMagazine then
 							magazineItem:SetAmmoMagazine(0);
+							if isnumber(magCondBefore) and magCondBefore >= 0 and magazineItem.SetCondition then
+								magazineItem:SetCondition(magCondBefore);
+							end;
 							
-							self.Owner:GiveItem(magazineItem);
+							local bGiven = self.Owner:GiveItem(magazineItem);
+							if not bGiven then
+								local ent = Clockwork.entity:CreateItem(self.Owner, magazineItem, self.Owner:GetPos() + Vector(0, 0, 16));
+								if not IsValid(ent) and magazineItem.itemID and item.instances then
+									item.instances[magazineItem.itemID] = nil;
+								end;
+							end
+						elseif magazineItem and magazineItem.itemID then
+							item.instances[magazineItem.itemID] = nil;
 						end
 					end
 				end
-			end
-			
-			if itemTable.SetData then
-				itemTable:SetData("Ammo", ammo);
 			end
 			
 			-- Also handle weapon item condition here.
@@ -599,17 +652,15 @@ function SWEP:ShootBullet(damage, recoil, num_bullets, aimcone)
 			end
 		end
 
-		local angle = Angle(-self.Primary.KickUp, 0, 0);
+		local kickUp = self.Primary.KickUp or 1;
+		local angle = Angle(-kickUp, 0, 0);
 
 		self.Owner:ViewPunch(angle);
-		
-		-- This is ghetto as fuck rofl.
-		timer.Simple(0.15, function()
-			if IsValid(self) and IsValid(self.Owner) then
-				local eyes = self.Owner:EyeAngles();
-			
-				eyes.pitch = eyes.pitch - self.Primary.KickUp;
 
+		timer.Simple(0.15, function()
+			if IsValid(self) and IsValid(self.Owner) and self.Owner:Alive() and self.Owner:GetActiveWeapon() == self then
+				local eyes = self.Owner:EyeAngles();
+				eyes.pitch = math.Clamp(eyes.pitch - kickUp, -89, 89);
 				self.Owner:SetEyeAngles(eyes);
 			end
 		end);
@@ -797,6 +848,22 @@ end
 /*---------------------------------------------------------
 IronSight
 -----------------------------------------------------*/
+function SWEP:ExitRunSights()
+	self.bInRunSights = false
+	self.IronSightsPos = self.SightsPos
+	self.IronSightsAng = self.SightsAng
+	if self:GetIronsights() then
+		self:SetIronsights(false, self.Owner)
+	end
+	if IsValid(self.Owner) then
+		self.Owner:SetFOV(0, (self:GetIronsightTime() or 0.25) / 2)
+		if SERVER and self.Secondary.ScopeZoom then
+			self.Owner:DrawViewModel(true)
+		end
+	end
+	self.DrawCrosshair = self.OrigCrossHair
+end
+
 function SWEP:IronSight()
 	if not IsValid(self) then return end
 	if not IsValid(self.Owner) then return end
@@ -811,13 +878,14 @@ function SWEP:IronSight()
 		end
 	end
 	
-	local bIron = self:GetIronsights();
+	local isSprinting = self.Owner:KeyDown(IN_SPEED) and self.Owner:GetNWInt("Stamina", 100) > 0;
    
-	if self.Owner:KeyPressed(IN_SPEED) --[[and not (self.Weapon:GetNWBool("Reloading"))]] then
+	if isSprinting and (self.Owner:KeyPressed(IN_SPEED) or not self.bInRunSights) then
 		if self.Weapon:GetNextPrimaryFire() <= (CurTime()+0.3) then
 			self.Weapon:SetNextPrimaryFire(CurTime()+0.3)                           -- Make it so you can't shoot for another quarter second
 		end
 		
+		self.bInRunSights = true
 		self.IronSightsPos = self.RunSightsPos                                  -- Hold it down
 		self.IronSightsAng = self.RunSightsAng                                  -- Hold it down
 		self:SetIronsights(true, self.Owner)                                    -- Set the ironsight true
@@ -831,19 +899,16 @@ function SWEP:IronSight()
 		end
 	end                                                            
  
-	if self.Owner:KeyReleased(IN_SPEED) then
-		self:SetIronsights(false, self.Owner)                        -- Set the ironsight true
-		self.Owner:SetFOV(0, self:GetIronsightTime() / 2);
-		self.DrawCrosshair = self.OrigCrossHair
-		
+	if self.Owner:KeyReleased(IN_SPEED) and self.bInRunSights then
+		self:ExitRunSights()
 		if CLIENT then return end
-		
-		if self.Secondary.ScopeZoom then
-			self.Owner:DrawViewModel(true)
-		end
 	end
 
-	if !self.Owner:KeyDown(IN_SPEED) then
+	if self.bInRunSights and not isSprinting then
+		self:ExitRunSights()
+	end
+
+	if not self.bInRunSights and not isSprinting then
 		if self.Owner:KeyPressed(IN_ATTACK2) --[[and not (self.Weapon:GetNWBool("Reloading"))]] then
 			self.Owner:SetFOV(self.Secondary.IronFOV, self:GetIronsightTime() / 2);
 			self.IronSightsPos = self.SightsPos                                     -- Bring it up
@@ -913,6 +978,7 @@ function SWEP:Think()
 								
 								if ammo and #ammo > 0 and !itemTable.usesMagazine then
 									itemTable:SetData("Ammo", {});
+									itemTable:SetData("RoundConditions", {});
 									
 									Clockwork.player:Notify(self.Owner, "Your weapon fills with water and your powder charge is ruined!");
 								end
@@ -925,24 +991,7 @@ function SWEP:Think()
 		
 		-- Last ditch effort to fix the clientside itemtable desync.
 		if !self.nextItemSend or self.nextItemSend <= curTime then
-			if IsValid(player) and player:IsPlayer() then
-				local itemTable = item.GetByWeapon(self);
-					
-				if itemTable then
-					netstream.Start(player, "WeaponItemData", {
-						definition = item.GetDefinition(itemTable, true),
-						weapon = self:EntIndex()
-					})
-
-					if self:GetNWInt("ItemID") ~= itemTable.itemID then
-						self:SetNWInt("ItemID", itemTable.itemID)
-					end
-					
-					self.cwItemTable = itemTable
-				end
-			end
-			
-			self.nextItemSend = curTime + math.random(1, 5);
+			self.nextItemSend = curTime + (item.SyncWeaponEntity(self, player) or 5);
 		end
 	--elseif CLIENT then
 		--self:IronSight();
@@ -955,22 +1004,25 @@ end
 GetViewModelPosition
 -----------------------------------------------------*/
 
-local multiplier = 0;
- 
 function SWEP:GetViewModelPosition(pos, ang)
 	if (not self.IronSightsPos) then return pos, ang end
 
 	local bIron = self.Weapon:GetNWBool("M9K_Ironsights")
+	local ironsightTime = self:GetIronsightTime() or 0.25;
+	if ironsightTime <= 0 then ironsightTime = 0.25 end
+	local dt = math.min(FrameTime(), 0.05);
+
+	self.ironMultiplier = self.ironMultiplier or 0;
 
 	if bIron then
-		multiplier = math.Clamp(multiplier + (FrameTime() / (self:GetIronsightTime())), 0, 1)
+		self.ironMultiplier = math.Clamp(self.ironMultiplier + (dt / ironsightTime), 0, 1)
 	else
-		if multiplier == 0 then return pos, ang end;
+		if self.ironMultiplier == 0 then return pos, ang end;
 
-		multiplier = math.Clamp(multiplier - (FrameTime() / (self:GetIronsightTime())), 0, 1)
+		self.ironMultiplier = math.Clamp(self.ironMultiplier - (dt / ironsightTime), 0, 1)
 	end
 	
-	local viewMultiplier = math.ease.OutQuad(multiplier);
+	local viewMultiplier = math.ease.OutQuad(self.ironMultiplier);
 
 	local Offset = self.IronSightsPos
 
@@ -1256,6 +1308,7 @@ if CLIENT then
 				ang:RotateAroundAxis(ang:Right(), v.angle.p)
 				ang:RotateAroundAxis(ang:Forward(), v.angle.r)
 			else
+				if (!IsValid(ent)) then return end
 				bone = ent:LookupBone(bone_override or tab.bone)
 
 				if (!bone) then return end

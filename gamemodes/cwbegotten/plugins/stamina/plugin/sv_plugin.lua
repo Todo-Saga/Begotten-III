@@ -74,7 +74,7 @@ function cwStamina:GetMaxStaminaPlugin(player)
 			max_stamina = max_stamina * 2;
 		end
 		
-		player:SetNetVar("Max_Stamina", max_stamina);
+		player:SetLocalVar("Max_Stamina", max_stamina);
 		return max_stamina;
 	end
 end;

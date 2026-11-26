@@ -467,7 +467,7 @@ function cwMelee:PlayerThink(player, curTime, infoTable, alive, initialized, ply
 			end
 		end
 		
-		if (stability >= max_stability or player:IsRagdolled() or (plyTab.stabilityCooldown and plyTab.stabilityCooldown > curTime)) then
+		if (stability >= max_stability or player:IsRagdolled() or player:GetNWBool("wOS.IsRolling") or (plyTab.stabilityCooldown and plyTab.stabilityCooldown > curTime)) then
 			plyTab.nextStability = curTime + 1;
 			return;
 		end;
@@ -689,6 +689,29 @@ function cwMelee:PlayerStabilityFallover(player, falloverTime, bNoBoogie, bNoTex
 			end
 		end)
 	end
+end;
+
+-- Called when a player has been ragdolled.
+local RAGDOLL_CLEAR_NETVARS = {"Guardening", "MelAttacking", "Parry", "ParrySuccess", "Riposting", "Deflect"};
+
+function cwMelee:PlayerRagdolled(player, state, ragdoll)
+	if IsValid(player) then
+		if player.CancelGuardening then
+			player:CancelGuardening();
+		end;
+
+		local batch;
+		for i = 1, #RAGDOLL_CLEAR_NETVARS do
+			local k = RAGDOLL_CLEAR_NETVARS[i];
+			if player:GetNetVar(k) then
+				batch = batch or {};
+				batch[#batch + 1] = {k, false};
+			end;
+		end;
+		if batch then
+			player:SetNetVars(batch);
+		end;
+	end;
 end;
 
 -- Called when a player has been unragdolled.

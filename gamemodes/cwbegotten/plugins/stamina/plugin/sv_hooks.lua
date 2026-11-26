@@ -29,10 +29,17 @@ end;
 
 -- Called just after a player spawns.
 function cwStamina:PostPlayerCharacterInitialized(player)
+	player:GetTable().staminaDepleted = nil;
 	local max_stamina = player:GetMaxStamina();
 
 	player:SetCharacterData("Max_Stamina", max_stamina);
 	player:SetLocalVar("Max_Stamina", max_stamina);
+end;
+
+function cwStamina:PostPlayerSpawn(player, lightSpawn, changeClass, firstSpawn)
+	if (!lightSpawn) then
+		player:GetTable().staminaDepleted = nil;
+	end;
 end;
 
 -- Called when a player attempts to throw a punch.
@@ -97,7 +104,11 @@ function cwStamina:PlayerThink(player, curTime, infoTable, alive, initialized, p
 				return;
 			end;
 		
-			if (player:GetMoveType() == MOVETYPE_NOCLIP) then
+			if (player:GetMoveType() == MOVETYPE_NOCLIP or plyTab.cwObserverMode or Clockwork.player:IsNoClipping(player)) then
+				if plyTab.staminaDepleted then
+					plyTab.staminaDepleted = nil;
+					hook.Run("RunModifyPlayerSpeed", player, infoTable, true);
+				end;
 				player:HandleStamina(1);
 				
 				return;
@@ -114,13 +125,32 @@ function cwStamina:PlayerThink(player, curTime, infoTable, alive, initialized, p
 			local regeneration = 0;
 			
 			if (!Clockwork.player:HasFlags(player, "E")) then
-				if (infoTable.isRunning) or (!onGround and infoTable.waterLevel >= 1 and !plyTab.drownedKingActive) then
-					local drainTab = {decrease = -2};
+				local currentStamina = player:GetCharacterData("Stamina", 100);
 
+				if currentStamina > 0 and plyTab.staminaDepleted then
+					plyTab.staminaDepleted = nil;
+					hook.Run("RunModifyPlayerSpeed", player, infoTable, true);
+				end;
+
+				if (infoTable.isRunning) or (!onGround and infoTable.waterLevel >= 1 and !plyTab.drownedKingActive) then
 					if (hook.Run("PlayerShouldStaminaDrain", player) != false) then
+						if currentStamina <= 0 then
+							if not plyTab.staminaDepleted then
+								plyTab.staminaDepleted = true;
+								hook.Run("RunModifyPlayerSpeed", player, infoTable, true);
+							end;
+							return;
+						end;
+
+						local drainTab = {decrease = -2};
 						hook.Run("ModifyStaminaDrain", player, drainTab);
 						
 						player:HandleStamina(drainTab.decrease);
+
+						if player:GetCharacterData("Stamina", 100) <= 0 then
+							plyTab.staminaDepleted = true;
+							hook.Run("RunModifyPlayerSpeed", player, infoTable, true);
+						end
 						
 						return;
 					else
@@ -130,6 +160,10 @@ function cwStamina:PlayerThink(player, curTime, infoTable, alive, initialized, p
 					regeneration = 3;
 				end;
 			else
+				if plyTab.staminaDepleted then
+					plyTab.staminaDepleted = nil;
+					hook.Run("RunModifyPlayerSpeed", player, infoTable, true);
+				end;
 				player:HandleStamina(100);
 				
 				return;
@@ -166,6 +200,10 @@ function cwStamina:PlayerThink(player, curTime, infoTable, alive, initialized, p
 				local stamina = player:GetCharacterData("Stamina", 100);
 				
 				player:HandleStamina(regeneration);
+				if plyTab.staminaDepleted and player:GetCharacterData("Stamina", 100) > 0 then
+					plyTab.staminaDepleted = nil;
+					hook.Run("RunModifyPlayerSpeed", player, infoTable, true);
+				end;
 			end;
 		end;
 	end;

@@ -1,3 +1,10 @@
+local Blood = {
+	"decals/blood2",
+	"decals/blood7",
+	"decals/blood3",
+	"decals/blood1"
+};
+
 function EFFECT:Init(data) --from Hoobsug, since it was just what i was looking for. it's part of his old badass sweps. if he wants this taken out he can gimme a buzz
 	
 	//if not IsValid(data:GetEntity()) then return end
@@ -19,11 +26,6 @@ function EFFECT:Init(data) --from Hoobsug, since it was just what i was looking 
 	local emitter = ParticleEmitter(data:GetOrigin())
 	
 for i=0, 4 do
-			local Blood = {}
-			Blood[1] = "decals/blood2"
-			Blood[2] = "decals/blood7"
-			Blood[3] = "decals/blood3"
-			Blood[4] = "decals/blood1"
 			local particle = emitter:Add( Blood[math.random(1,4)], self.Position - self.Forward * 4, (Color(255,0,0,25)) )
 			particle:SetVelocity( 10 * VectorRand() + 10 * VectorRand() + 10 * VectorRand() )
 			particle:SetGravity( Vector( 0, 0, -500 ) )
@@ -44,11 +46,6 @@ for i=0, 4 do
 end
 for i=2, 8 do
 	--self:EmitSound("physics/flesh/flesh_bloody_impact_hard1.wav", 30, 60)
-			local Blood = {}
-			Blood[1] = "decals/blood2"
-			Blood[2] = "decals/blood7"
-			Blood[3] = "decals/blood3"
-			Blood[4] = "decals/blood1"
 			local particle = emitter:Add( Blood[math.random(1,4)], self.Position - self.Forward * 4, (Color(255,0,0,25)) )
 			particle:SetVelocity( 40 * VectorRand() + 40 * VectorRand() + 40 * VectorRand() )
 			particle:SetGravity( Vector( 0, 0, -500 ) )

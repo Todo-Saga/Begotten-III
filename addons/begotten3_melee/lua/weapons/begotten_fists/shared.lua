@@ -783,7 +783,7 @@ function SWEP:SecondaryAttack()
 		end
 		
 		--if ply:GetNWInt("meleeStamina", 100) < parry_cost then return end
-		if ply:GetNWInt("Stamina", 100) < parry_cost then return end
+		if ply:GetNWInt("Stamina", 100) < math.max(1, parry_cost) then return end
 			
 		self:ParryAnimation()
 		ply:EmitSound(attacksoundtable["parryswing"][math.random(1, #attacksoundtable["parryswing"])])
